@@ -219,22 +219,35 @@ export function layoutRadial(model: DocumentModel, metrics: Metrics): LayoutMap 
     const pivotCol = centerX - Math.floor(pivotWord.cols / 2)
     map.set(pivotWord.id, { col: pivotCol, row })
 
-    // Words before pivot spiral up-left
+    // Words before pivot flow left, wrap up
     let leftCol = pivotCol
-    let leftRow = row
+    let leftRowOffset = 0
+    const leftPositions: { id: string; col: number; rowOffset: number }[] = []
     for (let j = pivotIdx - 1; j >= 0; j--) {
       const w = sWords[j]
       leftCol -= w.cols
       if (leftCol < 0) {
-        leftRow--
+        leftRowOffset--
         leftCol = pivotCol - w.cols
       }
-      map.set(w.id, { col: Math.max(0, leftCol), row: leftRow })
+      leftPositions.push({ id: w.id, col: Math.max(0, leftCol), rowOffset: leftRowOffset })
     }
+
+    // Calculate row offset to keep everything positive
+    const minOffset = Math.min(0, ...leftPositions.map(p => p.rowOffset))
+    const rowAdjust = -minOffset
+
+    // Apply left positions with adjustment
+    for (const { id, col, rowOffset } of leftPositions) {
+      map.set(id, { col, row: row + rowOffset + rowAdjust })
+    }
+
+    // Update pivot row
+    map.set(pivotWord.id, { col: pivotCol, row: row + rowAdjust })
 
     // Words after pivot flow right-down
     let rightCol = pivotCol + pivotWord.cols
-    let rightRow = row
+    let rightRow = row + rowAdjust
     for (let j = pivotIdx + 1; j < sWords.length; j++) {
       const w = sWords[j]
       if (rightCol + w.cols > metrics.maxCols) {
@@ -245,7 +258,7 @@ export function layoutRadial(model: DocumentModel, metrics: Metrics): LayoutMap 
       rightCol += w.cols
     }
 
-    row = Math.max(leftRow, rightRow) + 3
+    row = Math.max(row + rowAdjust, rightRow) + 3
   }
 
   return map
@@ -334,10 +347,12 @@ export function layoutListAware(model: DocumentModel, metrics: Metrics): LayoutM
   const map: LayoutMap = new Map()
   const { words } = model
 
-  // Grid: 3 fixed columns
-  const numCols = 3
+  // Adaptive columns: 2 on narrow screens, 3 on wide
+  const numCols = metrics.maxCols < 60 ? 2 : 3
   const colWidth = Math.floor(metrics.maxCols / numCols)
-  const colStarts = [0, colWidth, colWidth * 2]
+  const colStarts = numCols === 2
+    ? [0, colWidth]
+    : [0, colWidth, colWidth * 2]
 
   let row = 0
 

@@ -95,11 +95,51 @@ export type DocumentModel = {
   sentenceCount: number
 }
 
-export const DEFAULT_TEXT =
-  'By "augmenting human intellect" we mean increasing the capability of a man to approach a complex problem situation, to gain comprehension to suit his particular needs, and to derive solutions to problems. Increased capability in this respect is taken to mean a mixture of the following: more-rapid comprehension, better comprehension, the possibility of gaining a useful degree of comprehension in a situation that previously was too complex, speedier solutions, better solutions, and the possibility of finding solutions to problems that before seemed insoluble. And by "complex situations" we include the professional problems of diplomats, executives, social scientists, life scientists, physical scientists, attorneys, designers—whether the problem situation exists for twenty minutes or twenty years. We do not speak of isolated clever tricks that help in particular situations. We refer to a way of life in an integrated domain where hunches, cut-and-try, intangibles, and the human "feel for a situation" usefully co-exist with powerful concepts, streamlined terminology and notation, sophisticated methods, and high-powered electronic aids.'
+export const SAMPLE_TEXTS = {
+  engelbart: 'By "augmenting human intellect" we mean increasing the capability of a man to approach a complex problem situation, to gain comprehension to suit his particular needs, and to derive solutions to problems. Increased capability in this respect is taken to mean a mixture of the following: more-rapid comprehension, better comprehension, the possibility of gaining a useful degree of comprehension in a situation that previously was too complex, speedier solutions, better solutions, and the possibility of finding solutions to problems that before seemed insoluble. And by "complex situations" we include the professional problems of diplomats, executives, social scientists, life scientists, physical scientists, attorneys, designers—whether the problem situation exists for twenty minutes or twenty years. We do not speak of isolated clever tricks that help in particular situations. We refer to a way of life in an integrated domain where hunches, cut-and-try, intangibles, and the human "feel for a situation" usefully co-exist with powerful concepts, streamlined terminology and notation, sophisticated methods, and high-powered electronic aids.',
+
+  kafka: 'One morning, when Gregor Samsa woke from troubled dreams, he found himself transformed in his bed into a horrible vermin. He lay on his armour-like back, and if he lifted his head a little he could see his brown belly, slightly domed and divided by arches into stiff sections. The bedding was hardly able to cover it and seemed ready to slide off any moment. His many legs, pitifully thin compared with the size of the rest of him, waved about helplessly as he looked.',
+
+  tufte: 'Clutter and confusion are not attributes of data – they are shortcomings of design. The issue is the quality of the design, not the quantity of the data. Escaping this flatland is the essential task of envisioning information – for all the interesting worlds that we seek to understand are inevitably and happily multivariate in nature. Not flatlands.',
+
+  orwell: 'It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions, though not quickly enough to prevent a swirl of gritty dust from entering along with him.',
+
+  short: 'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.',
+}
+
+export const DEFAULT_TEXT = SAMPLE_TEXTS.engelbart
 
 const SENTENCE_END = /[.!?]$/
 const PUNCT_ONLY = /^[\p{P}]+$/u
+
+/** Split text into paragraphs (smart detect: double newline for prose, single for poetry) */
+export function splitParagraphs(text: string): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  // Count double vs single newlines
+  const doubleNewlines = (trimmed.match(/\n\s*\n/g) || []).length
+  const singleNewlines = (trimmed.match(/\n/g) || []).length
+
+  // If has double newlines, split on those (prose mode)
+  if (doubleNewlines >= 1) {
+    return trimmed
+      .split(/\n\s*\n/)
+      .map(p => p.trim())
+      .filter(Boolean)
+  }
+
+  // If only single newlines, split on those (poetry/line mode)
+  if (singleNewlines >= 1) {
+    return trimmed
+      .split(/\n/)
+      .map(p => p.trim())
+      .filter(Boolean)
+  }
+
+  // No newlines - single paragraph
+  return [trimmed]
+}
 
 export function createWords(text: string): DocumentModel {
   const words: Word[] = []

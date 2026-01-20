@@ -1,4 +1,4 @@
-import { BEATS, type BeatId, FOCUS_STYLES, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
+import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
 import type { DocumentModel, Word } from './model'
 
 type EngineOpts = {
@@ -14,14 +14,20 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   let running = false
   let beat: BeatId = 'plain'
   let focusStyle: FocusStyleId = 'dither'
-  let showHud = true
 
   let hoveredSentence: number | null = null
+
+  let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number) => void) | null = null
+  let maxContentWidth = 800
+
+  function notifyStateChange() {
+    onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount)
+  }
 
   const metrics: Metrics = {
     charW: 10,
     lineH: 18,
-    maxCols: 80,
+    maxCols: 80, // recalculated in measureFont
     padX: 24,
     padY: 24,
   }
@@ -51,9 +57,16 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     const descent = m.actualBoundingBoxDescent || 4
     metrics.lineH = Math.max(14, (ascent + descent) * 1.35)
 
-    // center block horizontally for fixed width
+    // Max content width for widescreen
+    const minPad = 32
+
+    // Use smaller of viewport or max content width
+    const availableWidth = Math.min(window.innerWidth - minPad * 2, maxContentWidth)
+    metrics.maxCols = Math.min(100, Math.max(40, Math.floor(availableWidth / metrics.charW)))
+
+    // Center block horizontally
     const blockW = metrics.maxCols * metrics.charW
-    metrics.padX = Math.max(16, Math.floor((window.innerWidth - blockW) / 2))
+    metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - blockW) / 2))
 
     // Estimate vertical height based on current targets to center vertically
     let maxRow = 0
@@ -208,42 +221,6 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     ctx.restore()
   }
 
-  function drawHud(fps: number) {
-    if (!showHud) return
-
-    const lines = [
-      `beat: ${beat} (${BEATS[beat].name})`,
-      `focus: ${focusStyle} (${FOCUS_STYLES[focusStyle].name})`,
-      `sent: ${hoveredSentence !== null ? hoveredSentence + 1 : '-'}/${model.sentenceCount}`,
-      `words: ${model.words.length}`,
-      `fps: ${fps.toFixed(0)}`,
-      'keys: 1-6 beats  j/k: nav  f: focus  h: hud',
-    ]
-
-    ctx.save()
-    ctx.globalAlpha = 0.9
-
-    const pad = 8
-    const boxW = 240
-    const boxH = lines.length * 16 + pad * 2
-    const x = window.innerWidth - boxW - 14
-    const y = 14
-
-    ctx.fillStyle = 'rgba(250,247,240,0.92)'
-    ctx.fillRect(x, y, boxW, boxH)
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)'
-    ctx.strokeRect(x, y, boxW, boxH)
-
-    ctx.fillStyle = '#111'
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-    let textY = y + pad
-    for (const line of lines) {
-      ctx.fillText(line, x + pad, textY)
-      textY += 16
-    }
-
-    ctx.restore()
-  }
 
   function wordIndexUnder(px: number, py: number): number | null {
     // iterate; ok for a single paragraph; optimize later
@@ -282,14 +259,17 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     const y = e.clientY - rect.top
     const idx = wordIndexUnder(x, y)
 
+    const prev = hoveredSentence
+
     if (idx == null) {
       hoveredSentence = null
       document.body.style.cursor = 'default'
-      return
+    } else {
+      hoveredSentence = model.words[idx].sentenceIndex
+      document.body.style.cursor = 'pointer'
     }
 
-    hoveredSentence = model.words[idx].sentenceIndex
-    document.body.style.cursor = 'pointer'
+    if (hoveredSentence !== prev) notifyStateChange()
   })
 
   window.addEventListener('resize', () => {
@@ -299,15 +279,12 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   })
 
   let last = performance.now()
-  let fps = 60
   function frame(now: number) {
     if (!running) return
 
     const dtMs = now - last
     last = now
-
     const dt = Math.min(0.05, dtMs / 1000)
-    fps = fps * 0.9 + (1 / Math.max(0.001, dt)) * 0.1
 
     stepWordAnimation(dt)
     stepFocus(dt)
@@ -315,8 +292,6 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     clear()
     ctx.font = '16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
     for (const w of model.words) drawWord(w)
-
-    drawHud(fps)
 
     requestAnimationFrame(frame)
   }
@@ -335,43 +310,84 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
     running = true
     last = performance.now()
+    hoveredSentence = 0 // auto-focus first sentence
+    notifyStateChange()
     requestAnimationFrame(frame)
   }
 
   function setBeat(next: BeatId) {
     beat = next
     layoutCurrentBeat()
+    notifyStateChange()
   }
 
   function setFocusStyle(next: FocusStyleId) {
     focusStyle = next
+    notifyStateChange()
   }
 
   function cycleFocusStyle() {
     const ids: FocusStyleId[] = ['dither', 'gray', 'redact', 'none']
     const idx = ids.indexOf(focusStyle)
     focusStyle = ids[(idx + 1) % ids.length]
+    notifyStateChange()
   }
 
-  function nextSentence() {
+  /** Returns 'wrap' if at end and should go to next paragraph */
+  function nextSentence(): 'ok' | 'wrap' {
     if (hoveredSentence === null) {
       hoveredSentence = 0
-    } else {
-      hoveredSentence = (hoveredSentence + 1) % model.sentenceCount
+      notifyStateChange()
+      return 'ok'
     }
+    if (hoveredSentence >= model.sentenceCount - 1) {
+      return 'wrap'
+    }
+    hoveredSentence++
+    notifyStateChange()
+    return 'ok'
   }
 
-  function prevSentence() {
+  /** Returns 'wrap' if at start and should go to prev paragraph */
+  function prevSentence(): 'ok' | 'wrap' {
     if (hoveredSentence === null) {
       hoveredSentence = model.sentenceCount - 1
-    } else {
-      hoveredSentence = (hoveredSentence - 1 + model.sentenceCount) % model.sentenceCount
+      notifyStateChange()
+      return 'ok'
     }
+    if (hoveredSentence <= 0) {
+      return 'wrap'
+    }
+    hoveredSentence--
+    notifyStateChange()
+    return 'ok'
   }
 
-  function toggleHud() {
-    showHud = !showHud
+  function goToLastSentence() {
+    hoveredSentence = model.sentenceCount - 1
+    notifyStateChange()
   }
 
-  return { start, setBeat, setFocusStyle, cycleFocusStyle, nextSentence, prevSentence, toggleHud }
+  function setMaxWidth(w: number) {
+    maxContentWidth = Math.max(300, Math.min(1200, w))
+    measureFont()
+    layoutCurrentBeat()
+  }
+
+  function getMaxWidth() {
+    return maxContentWidth
+  }
+
+  return {
+    start,
+    setBeat,
+    setFocusStyle,
+    cycleFocusStyle,
+    nextSentence,
+    prevSentence,
+    goToLastSentence,
+    setMaxWidth,
+    getMaxWidth,
+    set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
+  }
 }
