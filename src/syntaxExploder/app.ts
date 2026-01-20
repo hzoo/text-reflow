@@ -2,7 +2,7 @@ import { signal, computed, effect, batch } from '@preact/signals-core'
 import { createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
-import { markdownToParagraphs, stripJinaPreamble } from './markdown'
+import { markdownToParagraphs, markdownToReadingText, stripInlineMarkers, stripJinaPreamble } from './markdown'
 
 // SVG icons for layout buttons
 const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
@@ -59,6 +59,8 @@ export function start(root: HTMLElement) {
   const initialMarkdown = savedMarkdown === '1' || looksLikeMarkdown(savedText || '')
   if (initialMarkdown) localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
   const markdownMode$ = signal(initialMarkdown)
+  const debug$ = signal(Boolean((window as any).__reflowDebug))
+  const viewMode$ = signal<'paragraph' | 'full'>('paragraph')
 
   // Engine state (from engine callbacks)
   const beat$ = signal<BeatId>('plain')
@@ -68,9 +70,17 @@ export function start(root: HTMLElement) {
   const sentenceOnlyMode$ = signal(false)
 
   // Derived
-  const paragraphs$ = computed(() => markdownMode$.value
-    ? markdownToParagraphs(text$.value)
-    : splitParagraphs(text$.value))
+  const fullText$ = computed(() => markdownMode$.value
+    ? markdownToReadingText(text$.value)
+    : text$.value)
+  const paragraphs$ = computed(() => {
+    if (viewMode$.value === 'full') {
+      const full = fullText$.value.trim()
+      return full ? [full] : []
+    }
+    const rawParas = markdownMode$.value ? markdownToParagraphs(text$.value) : splitParagraphs(text$.value)
+    return rawParas.map(p => p.trim()).filter(Boolean)
+  })
   const currentParaText$ = computed(() => paragraphs$.value[currentPara$.value] || '')
   const words$ = computed(() => markdownMode$.value
     ? createWordsMarkdown(currentParaText$.value)
@@ -106,7 +116,13 @@ export function start(root: HTMLElement) {
       <span class="scrub-row">Aa <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
       <span class="scrub-row">↔ <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
     </div>
-    <div class="hud-keys">↑↓ nav · ← → para · esc hide</div>
+    <div class="hud-keys">
+      <span>↑↓ nav · ← → para · esc hide</span>
+      <div class="hud-toggles">
+        <button class="hud-toggle" id="view-toggle" type="button">Full</button>
+        <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
+      </div>
+    </div>
   `
   root.appendChild(hud)
 
@@ -127,6 +143,10 @@ export function start(root: HTMLElement) {
   centerIndicator.id = 'center-indicator'
   root.appendChild(centerIndicator)
 
+  const debugPanel = document.createElement('div')
+  debugPanel.id = 'debug-panel'
+  root.appendChild(debugPanel)
+
   const progressDots = hud.querySelector('#progress-dots') as HTMLElement
   const paraLabel = hud.querySelector('#para-label') as HTMLElement
   const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
@@ -137,6 +157,8 @@ export function start(root: HTMLElement) {
   const urlInput = inputPanel.querySelector('#url-input') as HTMLInputElement
   const urlLoad = inputPanel.querySelector('#url-load') as HTMLButtonElement
   const urlStatus = inputPanel.querySelector('#url-status') as HTMLDivElement
+  const debugToggle = hud.querySelector('#debug-toggle') as HTMLButtonElement
+  const viewToggle = hud.querySelector('#view-toggle') as HTMLButtonElement
 
   // ═══════════════════════════════════════════════════════════
   // Engine
@@ -315,10 +337,31 @@ export function start(root: HTMLElement) {
   effect(() => {
     const paras = paragraphs$.value
     const idx = currentPara$.value
-    if ((window as any).__reflowDebug) {
+    if (debug$.value) {
       const preview = paras[idx]?.slice(0, 140).replace(/\s+/g, ' ')
       console.debug('[reflow] paras', paras.length, 'idx', idx, 'preview', preview)
     }
+  })
+
+  // Debug panel (in-app)
+  effect(() => {
+    const isDebug = debug$.value
+    debugPanel.classList.toggle('active', isDebug)
+    if (!isDebug) return
+
+    const paras = paragraphs$.value
+    const idx = currentPara$.value
+    const raw = paras[idx] || ''
+    const plain = stripInlineMarkers(raw)
+    const mode = markdownMode$.value ? 'markdown' : 'plain'
+    const view = viewMode$.value
+    debugPanel.innerHTML = `
+      <div><strong>mode</strong> ${mode}</div>
+      <div><strong>view</strong> ${view}</div>
+      <div><strong>para</strong> ${idx + 1}/${paras.length}</div>
+      <div><strong>raw</strong> ${raw.replace(/\n/g, ' ')}</div>
+      <div><strong>plain</strong> ${plain.replace(/\n/g, ' ')}</div>
+    `
   })
 
   // Scrubber displays
@@ -326,6 +369,11 @@ export function start(root: HTMLElement) {
     void currentPara$.value // rerun when para changes
     updateSizeDisplay()
     updateWidthDisplay()
+  })
+
+  effect(() => {
+    const label = viewMode$.value === 'full' ? 'Split' : 'Full'
+    viewToggle.textContent = label
   })
 
   // ═══════════════════════════════════════════════════════════
@@ -396,7 +444,7 @@ export function start(root: HTMLElement) {
 
   function looksLikeMarkdown(text: string): boolean {
     if (!text) return false
-    return /\[\[(strong|em|link):?/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
+    return /\[\[(strong|em|link)/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
   }
 
   async function loadFromUrl() {
@@ -456,6 +504,20 @@ export function start(root: HTMLElement) {
     if (focus) engine.setFocusStyle(focus)
   })
 
+  debugToggle.addEventListener('click', () => {
+    debug$.value = !debug$.value
+    ;(window as any).__reflowDebug = debug$.value
+  })
+
+  function toggleViewMode() {
+    viewMode$.value = viewMode$.value === 'full' ? 'paragraph' : 'full'
+    currentPara$.value = 0
+  }
+
+  viewToggle.addEventListener('click', () => {
+    toggleViewMode()
+  })
+
   textInput.addEventListener('keydown', e => {
     if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
       e.preventDefault()
@@ -498,6 +560,7 @@ export function start(root: HTMLElement) {
     else if (key === 'l' || e.key === 'ArrowRight') nextParagraph()
     else if (key === 'h' || e.key === 'ArrowLeft') prevParagraph()
     else if (key === 'f') engine.cycleFocusStyle()
+    else if (key === 'v') toggleViewMode()
     else if (key === 'r') goToParagraph(0)
     else if (key === 'i') { e.preventDefault(); openInput() }
     else if (e.key === 'Escape') toggleHud()

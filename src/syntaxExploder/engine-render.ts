@@ -12,6 +12,7 @@ export type RenderState = {
   getSentenceWords: (sentenceIndex: number) => Word[]
   readonly animPadY: number
   readonly animPadX: number
+  readonly animPanY: number
   readonly fontString: string
   readonly fontSize: number
   readonly hoveredSentence: number | null
@@ -64,7 +65,7 @@ export function createRenderer(state: RenderState) {
 
     // Base position (unscaled)
     const baseX = state.animPadX + w.animCol * metrics.charW
-    const baseY = state.animPadY + w.animRow * metrics.lineH + w.focusDy
+    const baseY = state.animPadY + state.animPanY + w.animRow * metrics.lineH + w.focusDy
 
     let x = baseX
     let y = baseY
@@ -73,7 +74,7 @@ export function createRenderer(state: RenderState) {
     if (s > state.scaleEps) {
       const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
       const centerX = state.animPadX + centerCol * metrics.charW
-      const centerY = state.animPadY + centerRow * metrics.lineH + w.focusDy
+      const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
       x = centerX + (baseX - centerX) * s
       y = centerY + (baseY - centerY) * s
     }
@@ -159,7 +160,7 @@ export function createRenderer(state: RenderState) {
 
       // Base position (unscaled)
       const baseX = state.animPadX + w.animCol * metrics.charW
-      const baseY = state.animPadY + w.animRow * metrics.lineH + w.focusDy
+    const baseY = state.animPadY + state.animPanY + w.animRow * metrics.lineH + w.focusDy
 
       let x = baseX
       let y = baseY
@@ -170,7 +171,7 @@ export function createRenderer(state: RenderState) {
       if (s > state.scaleEps) {
         const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
         const centerX = state.animPadX + centerCol * metrics.charW
-        const centerY = state.animPadY + centerRow * metrics.lineH + w.focusDy
+        const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
         x = centerX + (baseX - centerX) * s
         y = centerY + (baseY - centerY) * s
         width *= s

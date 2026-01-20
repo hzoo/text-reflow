@@ -68,6 +68,8 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   const LN_0_01 = Math.log(0.01)
   let animPadY = 24
   let animPadX = 24
+  let panY = 0
+  let animPanY = 0
 
   function applyDPR() {
     const dpr = Math.max(1, window.devicePixelRatio || 1)
@@ -140,6 +142,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     getSentenceWords,
     get animPadY() { return animPadY },
     get animPadX() { return animPadX },
+    get animPanY() { return animPanY },
     get fontString() { return fontString },
     get fontSize() { return fontSize },
     get hoveredSentence() { return hoveredSentence },
@@ -244,6 +247,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     sentenceCenterCache.clear()
     // Re-measure after layout to update vertical padding
     measureFont()
+    updatePanForSentence()
     if (invalidateLayout) invalidate()
   }
 
@@ -283,7 +287,67 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     const dPadX = metrics.padX - animPadX
     if (Math.abs(dPadX) > EPS) active = true
     animPadX += dPadX * kPad
+
+    const dPan = panY - animPanY
+    if (Math.abs(dPan) > EPS) active = true
+    animPanY += dPan * kPad
     return active
+  }
+
+  function updatePanForSentence() {
+    if (hoveredSentence == null) {
+      panY = 0
+      return
+    }
+    const words = model.words
+    let startIdx = -1
+    let endIdx = -1
+    for (let i = 0; i < words.length; i++) {
+      if (words[i].sentenceIndex !== hoveredSentence) continue
+      if (startIdx === -1) startIdx = i
+      endIdx = i
+    }
+    if (startIdx === -1 || endIdx === -1) return
+
+    let paraStart = startIdx
+    for (let i = startIdx - 1; i >= 0; i--) {
+      if (words[i].breakAfter) {
+        paraStart = i + 1
+        break
+      }
+      if (i === 0) paraStart = 0
+    }
+
+    let paraEnd = endIdx
+    for (let i = endIdx; i < words.length; i++) {
+      if (words[i].breakAfter) {
+        paraEnd = i
+        break
+      }
+      if (i === words.length - 1) paraEnd = words.length - 1
+    }
+
+    let minRow = Infinity
+    let maxRow = -Infinity
+    for (let i = paraStart; i <= paraEnd; i++) {
+      const w = words[i]
+      minRow = Math.min(minRow, w.targetRow)
+      maxRow = Math.max(maxRow, w.targetRow)
+    }
+
+    const top = metrics.padY + minRow * metrics.lineH + panY
+    const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
+    const viewportTop = 16
+    const viewportBottom = window.innerHeight - bottomReserve - 16
+    const viewportHeight = Math.max(1, viewportBottom - viewportTop)
+    const bandTop = viewportTop + viewportHeight * 0.15
+    const bandBottom = viewportBottom - viewportHeight * 0.15
+    const centerY = (viewportTop + viewportBottom) / 2
+    const midY = (top + bottom) / 2
+
+    if (midY < bandTop || midY > bandBottom) {
+      panY += centerY - midY
+    }
   }
 
   function sentenceYOffset(sentenceIndex: number): number {
@@ -414,6 +478,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     layoutCurrentBeat()
     animPadY = metrics.padY
     animPadX = metrics.padX
+    animPanY = panY
     for (const w of model.words) {
       w.animCol = w.targetCol
       w.animRow = w.targetRow
@@ -460,6 +525,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       return 'wrap'
     }
     hoveredSentence++
+    updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()
@@ -479,6 +545,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       return 'wrap'
     }
     hoveredSentence--
+    updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()
@@ -487,6 +554,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   function goToLastSentence() {
     hoveredSentence = model.sentenceCount - 1
+    updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()

@@ -75,13 +75,12 @@ export function markdownToParagraphs(raw: string): string[] {
     }
     if (token.type === 'hr') {
       flushBuffer()
-      paragraphs.push('---')
       continue
     }
   }
 
   flushBuffer()
-  return paragraphs.map((p) => stripInlineMarkers(p))
+  return paragraphs
 }
 
 function appendBlockLines(token: any, out: string[]) {
@@ -115,8 +114,6 @@ function appendBlockLines(token: any, out: string[]) {
       return
     }
     case 'hr': {
-      out.push('---')
-      out.push('')
       return
     }
     default:

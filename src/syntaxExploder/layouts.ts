@@ -41,8 +41,8 @@ export function layoutPlainWrap(model: DocumentModel, metrics: Metrics): LayoutM
     map.set(w.id, { col, row })
     col += wordCols
 
-    if (w.text.endsWith('\n')) {
-      row++
+    if (w.breakAfter) {
+      row += Math.max(1, w.breakAfterRows)
       col = 0
     }
   }

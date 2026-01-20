@@ -24,6 +24,10 @@ Published Time: 2024-01-01T00:00:00+00:00
 Markdown Content:
 ${SOURCE}`
 
+const IDEA_MACHINES_EXCERPT = `Tech as a system of values, and not just an industry, is heavily driven by its subcultures and their ideologies. Where do these ideologies come from, and how do they influence what’s accomplished?
+
+One of the most visible ideologies in tech is effective altruism (or EA), a philanthropic school of thought [that advocates for](https://www.effectivealtruism.org/articles/introduction-to-effective-altruism)_“us[ing] high-quality evidence and careful reasoning to work out how to help others as much as possible.”_. If you don’t buy into its philosophy, it’s easy to write off effective altruism as yet another eccentric subculture. But effective altruism is both less and more interesting than it seems.`
+
 describe('markdownToReadingText', () => {
   test('parses stephango sample', () => {
     const text = markdownToReadingText(SOURCE)
@@ -50,5 +54,12 @@ describe('markdownToReadingText', () => {
     const stripped = stripJinaPreamble(JINA_WRAPPED)
     expect(stripped.startsWith('_File over app_')).toBe(true)
     expect(stripped.includes('Markdown Content:')).toBe(false)
+  })
+
+  test('no empty sentences in full mode excerpt', () => {
+    const text = markdownToReadingText(IDEA_MACHINES_EXCERPT)
+    const sentences = text.split(/\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean)
+    expect(sentences.length).toBeGreaterThan(2)
+    expect(sentences.includes('')).toBe(false)
   })
 })

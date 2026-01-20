@@ -209,6 +209,31 @@ canvas {
   color: rgba(0, 0, 0, 0.35);
   text-align: center;
   margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hud-keys .hud-toggles {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.hud-keys .hud-toggle {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.65);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.hud-keys .hud-toggle:hover {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 /* ===== Mobile: Bottom Sheet ===== */
@@ -387,6 +412,37 @@ canvas {
 
 #center-indicator.at-end {
   background: rgba(0, 0, 0, 0.1);
+}
+
+/* Debug panel */
+#debug-panel {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  max-width: min(480px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.75);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  z-index: 30;
+  display: none;
+  max-height: 45vh;
+  overflow: auto;
+  pointer-events: auto;
+}
+
+#debug-panel.active {
+  display: block;
+}
+
+#debug-panel strong {
+  display: inline-block;
+  min-width: 46px;
+  color: rgba(0, 0, 0, 0.55);
 }
 
 /* Mobile: center indicator above HUD */

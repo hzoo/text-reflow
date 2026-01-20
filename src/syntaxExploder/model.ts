@@ -10,6 +10,8 @@ export type Word = {
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
   linkUrl?: string
+  breakAfter: boolean
+  breakAfterRows: number
 
   // layout targets
   targetCol: number
@@ -162,6 +164,8 @@ export function createWords(text: string): DocumentModel {
     const raw = token.replace(/\s+$/g, '')
     const spaceAfter = /\s+$/.test(token)
     const displayText = raw + (spaceAfter ? ' ' : '')
+    const breakAfter = /\n/.test(token)
+    const breakAfterRows = breakAfter ? 1 : 0
 
     const id = `w${tokenIndex}`
     const lower = raw.toLowerCase()
@@ -181,6 +185,8 @@ export function createWords(text: string): DocumentModel {
       fontStyle: 'normal',
       fontWeight: 'normal',
       linkUrl,
+      breakAfter,
+      breakAfterRows,
       targetCol: 0,
       targetRow: 0,
       animCol: 0,
@@ -210,15 +216,6 @@ function extractUrl(raw: string): string | undefined {
   url = url.replace(/^[([<{]+/, '')
   url = url.replace(/[)\]}>.,;:!?]+$/, '')
   return url
-}
-
-function extractLinkMarkers(text: string): { text: string; urls: string[] } {
-  const urls: string[] = []
-  const cleaned = text.replace(/\[\[link:([^\]]+)\]\]([\s\S]*?)\[\[\/link\]\]/g, (_m, url, label) => {
-    urls.push(url)
-    return label
-  })
-  return { text: cleaned, urls }
 }
 
 type BlockStyle = 'title' | 'heading' | 'bullet' | 'body'
@@ -251,6 +248,8 @@ export function createWordsMarkdown(text: string): DocumentModel {
       fontStyle: inline.fontStyle,
       fontWeight: inline.fontWeight,
       linkUrl,
+      breakAfter: false,
+      breakAfterRows: 0,
       targetCol: 0,
       targetRow: 0,
       animCol: 0,
@@ -277,30 +276,64 @@ export function createWordsMarkdown(text: string): DocumentModel {
   }
 
   function baseScaleFor(style: BlockStyle): number {
-    if (style === 'title') return 1.5
-    if (style === 'heading') return 1.2
+    if (style === 'title') return 1.12
+    if (style === 'heading') return 1.06
     return 1
   }
 
-  const cleaned = extractLinkMarkers(text)
-  const lines = cleaned.text.split(/\n/)
+  function applyLeadingSpace(text: string): string {
+    if (!text) return text
+    if (!/^\s+/.test(text)) return text
+    const prev = words[words.length - 1]
+    if (prev && !prev.spaceAfter) {
+      prev.spaceAfter = true
+      prev.displayText = `${prev.text} `
+      prev.cols = Math.max(1, Math.round(prev.displayText.length * prev.baseScale))
+    }
+    return text.replace(/^\s+/, '')
+  }
+
+  const lines = text.split(/\n/)
   for (const line of lines) {
     const trimmed = line.trim()
-    if (!trimmed) continue
+    if (!trimmed) {
+      const prev = words[words.length - 1]
+      if (prev) {
+        prev.breakAfter = true
+        prev.breakAfterRows = Math.max(prev.breakAfterRows, 2)
+      }
+      continue
+    }
+    const lineWordStart = words.length
+    const lineSentenceStart = sentenceIndex
     const { style, content } = parseLine(trimmed)
     const scale = baseScaleFor(style)
     const lineText = style === 'bullet' ? `- ${content}` : content
     const segments = parseInlineMarkers(lineText)
+    const blockWeight: InlineStyle['fontWeight'] = (style === 'title' || style === 'heading') ? 'bold' : 'normal'
     for (const segment of segments) {
+      const segmentText = applyLeadingSpace(segment.text)
+      if (!segmentText) continue
+      const segmentStyle: InlineStyle = {
+        fontStyle: segment.style.fontStyle,
+        fontWeight: segment.style.fontWeight === 'bold' ? 'bold' : blockWeight,
+        linkUrl: segment.style.linkUrl,
+      }
       const re = /\S+(\s+|$)/g
-      for (const match of segment.text.matchAll(re)) {
+      for (const match of segmentText.matchAll(re)) {
         const token = match[0]
         const raw = token.replace(/\s+$/g, '')
         const spaceAfter = /\s+$/.test(token)
-        pushWord(raw, spaceAfter, scale, segment.style)
+        pushWord(raw, spaceAfter, scale, segmentStyle)
       }
     }
-    sentenceIndex++
+    if (words.length > lineWordStart && sentenceIndex === lineSentenceStart) sentenceIndex++
+
+    const prev = words[words.length - 1]
+    if (prev && words.length > lineWordStart) {
+      prev.breakAfter = true
+      prev.breakAfterRows = Math.max(prev.breakAfterRows, 1)
+    }
   }
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
