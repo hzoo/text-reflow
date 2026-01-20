@@ -3,6 +3,7 @@ export type Word = {
   tokenIndex: number
   sentenceIndex: number
   text: string
+  displayText: string
   spaceAfter: boolean
   cols: number
 
@@ -93,6 +94,7 @@ export type DocumentModel = {
   words: Word[]
   metaById: Map<string, WordMeta>
   sentenceCount: number
+  wordsBySentence: Word[][]
 }
 
 export const SAMPLE_TEXTS = {
@@ -144,6 +146,7 @@ export function splitParagraphs(text: string): string[] {
 export function createWords(text: string): DocumentModel {
   const words: Word[] = []
   const metaById = new Map<string, WordMeta>()
+  const wordsBySentence: Word[][] = []
 
   let tokenIndex = 0
   let sentenceIndex = 0
@@ -154,6 +157,7 @@ export function createWords(text: string): DocumentModel {
     const token = match[0]
     const raw = token.replace(/\s+$/g, '')
     const spaceAfter = /\s+$/.test(token)
+    const displayText = raw + (spaceAfter ? ' ' : '')
 
     const id = `w${tokenIndex}`
     const lower = raw.toLowerCase()
@@ -165,8 +169,9 @@ export function createWords(text: string): DocumentModel {
       tokenIndex,
       sentenceIndex,
       text: raw,
+      displayText,
       spaceAfter,
-      cols: raw.length + (spaceAfter ? 1 : 0),
+      cols: displayText.length,
       targetCol: 0,
       targetRow: 0,
       animCol: 0,
@@ -177,6 +182,8 @@ export function createWords(text: string): DocumentModel {
     })
 
     metaById.set(id, { isStop, isPunct })
+    if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
+    wordsBySentence[sentenceIndex].push(words[words.length - 1])
 
     if (SENTENCE_END.test(raw)) sentenceIndex++
     tokenIndex++
@@ -184,5 +191,5 @@ export function createWords(text: string): DocumentModel {
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
 
-  return { words, metaById, sentenceCount: finalSentenceCount }
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
 }

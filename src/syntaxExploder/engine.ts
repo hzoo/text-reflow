@@ -1,4 +1,5 @@
 import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
+import { createRenderer } from './engine-render'
 import type { DocumentModel, Word } from './model'
 
 type EngineOpts = {
@@ -22,15 +23,32 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
+  const fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  const SCALE_EPS = 1.01
 
   // Cached font string to avoid allocation in hot loop
   let fontString = ''
+  const fontCache = new Map<number, string>()
 
   // Cached sentence centers for magnify mode
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
 
+  let needsRedraw = true
+  let rafId = 0
+
   function notifyStateChange() {
     onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount, sentenceOnlyMode)
+  }
+
+  function requestFrame() {
+    if (!running || rafId) return
+    last = performance.now()
+    rafId = requestAnimationFrame(frame)
+  }
+
+  function invalidate() {
+    needsRedraw = true
+    requestFrame()
   }
 
   const metrics: Metrics = {
@@ -41,6 +59,10 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     padY: 24,
   }
 
+  const EPS = 0.001
+  const LN_0_0001 = Math.log(0.0001)
+  const LN_0_001 = Math.log(0.001)
+  const LN_0_01 = Math.log(0.01)
   let animPadY = 24
 
   function applyDPR() {
@@ -54,13 +76,15 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     canvas.height = Math.floor(h * dpr)
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    needsRedraw = true
   }
 
   function measureFont() {
     ctx.textBaseline = 'top'
-    fontString = `${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`
+    fontString = `${fontSize}px ${fontFamily}`
     ctx.font = fontString
-    sentenceCenterCache.clear()
+    fontCache.clear()
+    fontCache.set(fontSize, fontString)
 
     const m = ctx.measureText('M')
     metrics.charW = m.width || fontSize * 0.6
@@ -87,7 +111,9 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     // Account for bottomReserve (HUD on mobile)
     const availableHeight = window.innerHeight - bottomReserve
     let maxRow = 0
-    for (const w of model.words) {
+    const words = model.words
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
       if (w.targetRow > maxRow) maxRow = w.targetRow
     }
     const blockH = (maxRow + 1) * metrics.lineH
@@ -96,8 +122,24 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   /** Get words for a specific sentence */
   function getSentenceWords(sentenceIndex: number): Word[] {
-    return model.words.filter(w => w.sentenceIndex === sentenceIndex)
+    return model.wordsBySentence[sentenceIndex] || []
   }
+
+  const { drawWord, drawWordPlain, drawWordRedactRect, wordIndexUnder } = createRenderer({
+    ctx,
+    model,
+    metrics,
+    fontFamily,
+    fontCache,
+    sentenceCenterCache,
+    scaleEps: SCALE_EPS,
+    getSentenceWords,
+    get animPadY() { return animPadY },
+    get fontString() { return fontString },
+    get fontSize() { return fontSize },
+    get hoveredSentence() { return hoveredSentence },
+    get focusStyle() { return focusStyle },
+  })
 
   /** Calculate content bounds for given words */
   function getContentBounds(words: Word[]): { maxRow: number; maxCol: number } {
@@ -133,7 +175,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       const testSize = Math.floor((minSize + maxSize) / 2)
       fontSize = testSize
       measureFont()
-      layoutCurrentBeat()
+      layoutCurrentBeat(false)
 
       if (contentFits(model.words)) {
         bestSize = testSize
@@ -176,7 +218,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       const testSize = Math.floor((minSize + maxSize) / 2)
       fontSize = testSize
       measureFont()
-      layoutCurrentBeat()
+      layoutCurrentBeat(false)
 
       if (contentFits(sentenceWords)) {
         bestSize = testSize
@@ -191,15 +233,18 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     layoutCurrentBeat()
   }
 
-  function layoutCurrentBeat() {
+  function layoutCurrentBeat(invalidateLayout = true) {
     const layout = BEATS[beat].layout({ model, metrics })
     applyTargets(model.words, layout)
+    sentenceCenterCache.clear()
     // Re-measure after layout to update vertical padding
     measureFont()
+    if (invalidateLayout) invalidate()
   }
 
   function applyTargets(words: Word[], targets: LayoutMap) {
-    for (const w of words) {
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
       const t = targets.get(w.id)
       if (!t) continue
       w.targetCol = t.col
@@ -207,19 +252,29 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     }
   }
 
-  function stepWordAnimation(dt: number) {
+  function stepWordAnimation(dt: number): boolean {
     // smoothing factor; dt-normalized
-    const k = 1 - Math.pow(0.0001, dt)
+    const k = -Math.expm1(LN_0_0001 * dt)
+    let active = false
 
-    for (const w of model.words) {
-      w.animCol += (w.targetCol - w.animCol) * k
-      w.animRow += (w.targetRow - w.animRow) * k
-      w.animScale += (w.targetScale - w.animScale) * k
+    const words = model.words
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const dCol = w.targetCol - w.animCol
+      const dRow = w.targetRow - w.animRow
+      const dScale = w.targetScale - w.animScale
+      if (Math.abs(dCol) > EPS || Math.abs(dRow) > EPS || Math.abs(dScale) > EPS) active = true
+      w.animCol += dCol * k
+      w.animRow += dRow * k
+      w.animScale += dScale * k
     }
 
     // smooth padY transition
-    const kPad = 1 - Math.pow(0.001, dt)
-    animPadY += (metrics.padY - animPadY) * kPad
+    const kPad = -Math.expm1(LN_0_001 * dt)
+    const dPad = metrics.padY - animPadY
+    if (Math.abs(dPad) > EPS) active = true
+    animPadY += dPad * kPad
+    return active
   }
 
   function sentenceYOffset(sentenceIndex: number): number {
@@ -232,11 +287,14 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     return 0
   }
 
-  function stepFocus(dt: number) {
-    const k = 1 - Math.pow(0.01, dt)
+  function stepFocus(dt: number): boolean {
+    const k = -Math.expm1(LN_0_01 * dt)
     const isMagnifyBeat = beat === 'magnify'
+    let active = false
 
-    for (const w of model.words) {
+    const words = model.words
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
       const isHoveredSent = hoveredSentence !== null && w.sentenceIndex === hoveredSentence
       
       // Update target scale (reduced from 1.8 to 1.35)
@@ -247,130 +305,20 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       }
 
       const targetDy = sentenceYOffset(w.sentenceIndex)
-      w.focusDy += (targetDy - w.focusDy) * k
+      const dDy = targetDy - w.focusDy
+      if (Math.abs(dDy) > EPS) active = true
+      w.focusDy += dDy * k
     }
+    return active
   }
 
   function clear() {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
-  function getSentenceCenter(sentenceIndex: number): { centerCol: number; centerRow: number } {
-    const cached = sentenceCenterCache.get(sentenceIndex)
-    if (cached) return cached
-
-    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity
-    for (let i = 0; i < model.words.length; i++) {
-      const other = model.words[i]
-      if (other.sentenceIndex === sentenceIndex) {
-        minCol = Math.min(minCol, other.targetCol)
-        maxCol = Math.max(maxCol, other.targetCol + other.cols)
-        minRow = Math.min(minRow, other.targetRow)
-        maxRow = Math.max(maxRow, other.targetRow + 1)
-      }
-    }
-    const result = {
-      centerCol: (minCol + maxCol) / 2,
-      centerRow: (minRow + maxRow) / 2,
-    }
-    sentenceCenterCache.set(sentenceIndex, result)
-    return result
-  }
-
-  function drawWord(w: Word) {
-    const s = w.animScale
-    const isScaled = s > 1.01
-
-    // Base position (unscaled)
-    const baseX = metrics.padX + w.animCol * metrics.charW
-    const baseY = animPadY + w.animRow * metrics.lineH + w.focusDy
-
-    let x = baseX
-    let y = baseY
-
-    // For magnified words, zoom from the sentence center
-    if (isScaled) {
-      const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-      const centerX = metrics.padX + centerCol * metrics.charW
-      const centerY = animPadY + centerRow * metrics.lineH + w.focusDy
-      x = centerX + (baseX - centerX) * s
-      y = centerY + (baseY - centerY) * s
-    }
-
-    // hover highlight
-    const isHover = hoveredSentence != null && w.sentenceIndex === hoveredSentence
-    const isDimmed = !isHover && hoveredSentence != null
-
-    // Redact style: draw rect and return early
-    if (isDimmed && focusStyle === 'redact') {
-      ctx.fillStyle = 'rgba(0,0,0,0.1)'
-      ctx.fillRect(x, y + 2 * s, w.cols * metrics.charW * s - 2 * s, metrics.lineH * s - 4 * s)
-      return
-    }
-
-    // Set font only if scaled (otherwise use pre-set font from frame)
-    if (isScaled) {
-      ctx.font = `${(fontSize * s).toFixed(0)}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`
-    }
-
-    // Set alpha based on focus style
-    if (isDimmed) {
-      if (focusStyle === 'gray') {
-        ctx.globalAlpha = 0.2
-      } else if (focusStyle === 'dither') {
-        const on = ((x / (metrics.charW * s) | 0) + (y / (metrics.lineH * s) | 0)) & 1
-        ctx.globalAlpha = on ? 0.16 : 0.32
-      }
-    }
-
-    ctx.fillText(w.spaceAfter ? w.text + ' ' : w.text, x, y)
-
-    // Reset alpha if changed
-    if (isDimmed && focusStyle !== 'none') {
-      ctx.globalAlpha = 1
-    }
-    // Reset font if scaled
-    if (isScaled) {
-      ctx.font = fontString
-    }
-  }
-
-
-  function wordIndexUnder(px: number, py: number): number | null {
-    // iterate; ok for a single paragraph; optimize later
-    for (let i = 0; i < model.words.length; i++) {
-      const w = model.words[i]
-      const s = w.animScale
-      
-      // Base position (unscaled)
-      const baseX = metrics.padX + w.animCol * metrics.charW
-      const baseY = animPadY + w.animRow * metrics.lineH + w.focusDy
-
-      let x = baseX
-      let y = baseY
-      let width = Math.max(1, w.cols) * metrics.charW
-      let height = metrics.lineH
-
-      // For magnified words, compute actual position from center zoom
-      if (s > 1.01) {
-        const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-        const centerX = metrics.padX + centerCol * metrics.charW
-        const centerY = animPadY + centerRow * metrics.lineH + w.focusDy
-        x = centerX + (baseX - centerX) * s
-        y = centerY + (baseY - centerY) * s
-        width *= s
-        height *= s
-      }
-
-      if (x <= px && px <= x + width && y <= py && py <= y + height) return i
-    }
-    return null
-  }
-
   canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const x = e.offsetX
+    const y = e.offsetY
     const idx = wordIndexUnder(x, y)
 
     const prev = hoveredSentence
@@ -383,7 +331,10 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       document.body.style.cursor = 'pointer'
     }
 
-    if (hoveredSentence !== prev) notifyStateChange()
+    if (hoveredSentence !== prev) {
+      notifyStateChange()
+      invalidate()
+    }
   })
 
   window.addEventListener('resize', () => {
@@ -395,13 +346,15 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   let last = performance.now()
   function frame(now: number) {
     if (!running) return
+    rafId = 0
 
     const dtMs = now - last
     last = now
     const dt = Math.min(0.05, dtMs / 1000)
 
-    stepWordAnimation(dt)
-    stepFocus(dt)
+    const animating = stepWordAnimation(dt) || stepFocus(dt)
+    if (!needsRedraw && !animating) return
+    needsRedraw = false
 
     clear()
     ctx.font = fontString
@@ -410,15 +363,42 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
     // In sentence-only mode, only draw the current sentence
     if (sentenceOnlyMode && hoveredSentence !== null) {
-      for (const w of model.words) {
-        if (w.sentenceIndex === hoveredSentence) drawWord(w)
-      }
+      const words = getSentenceWords(hoveredSentence)
+      for (let i = 0; i < words.length; i++) drawWordPlain(words[i])
     } else {
       const words = model.words
-      for (let i = 0; i < words.length; i++) drawWord(words[i])
+      if (hoveredSentence !== null && focusStyle !== 'none') {
+        if (focusStyle === 'gray') {
+          ctx.globalAlpha = 0.2
+          for (let i = 0; i < words.length; i++) {
+            const w = words[i]
+            if (w.sentenceIndex !== hoveredSentence) drawWordPlain(w)
+          }
+          ctx.globalAlpha = 1
+          for (let i = 0; i < words.length; i++) {
+            const w = words[i]
+            if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
+          }
+        } else if (focusStyle === 'redact') {
+          ctx.fillStyle = 'rgba(0,0,0,0.1)'
+          for (let i = 0; i < words.length; i++) {
+            const w = words[i]
+            if (w.sentenceIndex !== hoveredSentence) drawWordRedactRect(w)
+          }
+          ctx.fillStyle = '#111'
+          for (let i = 0; i < words.length; i++) {
+            const w = words[i]
+            if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
+          }
+        } else {
+          for (let i = 0; i < words.length; i++) drawWord(words[i])
+        }
+      } else {
+        for (let i = 0; i < words.length; i++) drawWordPlain(words[i])
+      }
     }
 
-    requestAnimationFrame(frame)
+    if (animating) requestFrame()
   }
 
   function start() {
@@ -434,10 +414,10 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     }
 
     running = true
-    last = performance.now()
+    needsRedraw = true
     hoveredSentence = 0 // auto-focus first sentence
     notifyStateChange()
-    requestAnimationFrame(frame)
+    requestFrame()
   }
 
   function setBeat(next: BeatId) {
@@ -449,6 +429,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   function setFocusStyle(next: FocusStyleId) {
     focusStyle = next
     notifyStateChange()
+    invalidate()
   }
 
   function cycleFocusStyle() {
@@ -456,6 +437,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     const idx = ids.indexOf(focusStyle)
     focusStyle = ids[(idx + 1) % ids.length]
     notifyStateChange()
+    invalidate()
   }
 
   /** Returns 'wrap' if at end and should go to next paragraph */
@@ -464,6 +446,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       hoveredSentence = 0
       if (sentenceOnlyMode) fitCurrentSentence()
       notifyStateChange()
+      invalidate()
       return 'ok'
     }
     if (hoveredSentence >= model.sentenceCount - 1) {
@@ -472,6 +455,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     hoveredSentence++
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
+    invalidate()
     return 'ok'
   }
 
@@ -481,6 +465,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       hoveredSentence = model.sentenceCount - 1
       if (sentenceOnlyMode) fitCurrentSentence()
       notifyStateChange()
+      invalidate()
       return 'ok'
     }
     if (hoveredSentence <= 0) {
@@ -489,6 +474,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     hoveredSentence--
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
+    invalidate()
     return 'ok'
   }
 
@@ -496,6 +482,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     hoveredSentence = model.sentenceCount - 1
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
+    invalidate()
   }
 
   function setMaxWidth(w: number) {
