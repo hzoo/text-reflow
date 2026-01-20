@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "bunx --bun vite",
     "build": "bunx --bun tsc && bunx --bun vite build",
-    "preview": "bunx --bun vite preview"
+    "preview": "bunx --bun vite preview",
+    "deploy": "bun run build && bunx wrangler pages deploy dist --project-name=syntax-exploder-text-layout-visualization"
   },
   "devDependencies": {
     "@types/bun": "^1.3.6",

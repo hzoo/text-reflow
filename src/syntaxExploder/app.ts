@@ -2,6 +2,41 @@ import { createWords, splitParagraphs, DEFAULT_TEXT } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
 
+// SVG icons for layout buttons
+const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
+  plain: {
+    label: 'Flow',
+    svg: `<svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h12M4 18h8"/></svg>`,
+  },
+  cascade: {
+    label: 'Build',
+    svg: `<svg viewBox="0 0 24 24"><path d="M4 18h4M4 14h8M4 10h12M4 6h16"/></svg>`,
+  },
+  tree: {
+    label: 'Spread',
+    svg: `<svg viewBox="0 0 24 24"><path d="M12 4v4M12 8l-6 4M12 8l6 4M6 12l-2 4M6 12l2 4M18 12l-2 4M18 12l2 4"/></svg>`,
+  },
+  list: {
+    label: 'Lines',
+    svg: `<svg viewBox="0 0 24 24"><path d="M8 6h12M8 10h12M8 14h12M8 18h12"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="10" r="1" fill="currentColor"/><circle cx="4" cy="14" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>`,
+  },
+  magnify: {
+    label: 'Zoom',
+    svg: `<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/></svg>`,
+  },
+  radial: {
+    label: 'Burst',
+    svg: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+  },
+}
+
+const FOCUS_LABELS: Record<FocusStyleId, string> = {
+  dither: 'Soft',
+  gray: 'Dim',
+  redact: 'Hide',
+  none: 'Off',
+}
+
 export function start(root: HTMLElement) {
   root.innerHTML = ''
 
@@ -13,17 +48,35 @@ export function start(root: HTMLElement) {
   const hud = document.createElement('div')
   hud.id = 'hud'
   hud.innerHTML = `
-    <div class="hud-line" id="hud-status"></div>
-    <div class="hud-line" id="hud-para"></div>
-    <div class="hud-line hud-keys">1-6: layout  hjkl/arrows: nav  f: focus  i: input  esc: hide</div>
-    <div class="hud-scrubber">
-      <label>size</label>
+    <div class="hud-progress">
+      <div class="progress-dots" id="progress-dots"></div>
+      <span class="para-label" id="para-label"></span>
+    </div>
+    <div class="layout-picker" id="layout-picker">
+      ${(Object.keys(LAYOUT_ICONS) as BeatId[])
+        .map(
+          (id) =>
+            `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}" aria-label="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`
+        )
+        .join('')}
+    </div>
+    <div class="focus-picker" id="focus-picker">
+      ${(Object.keys(FOCUS_LABELS) as FocusStyleId[])
+        .map(
+          (id) =>
+            `<button class="focus-btn" data-focus="${id}">${FOCUS_LABELS[id]}</button>`
+        )
+        .join('')}
+    </div>
+    <div class="hud-slider">
+      <span class="slider-label">Aa</span>
       <input type="range" id="size-scrubber" min="12" max="40" value="20">
     </div>
-    <div class="hud-scrubber">
-      <label>width</label>
+    <div class="hud-slider">
+      <span class="slider-label">↔</span>
       <input type="range" id="width-scrubber" min="300" max="1200" value="800">
     </div>
+    <div class="hud-keys">↑↓ nav · ← → para · esc hide</div>
   `
   root.appendChild(hud)
 
@@ -66,8 +119,10 @@ export function start(root: HTMLElement) {
     }, 1200)
   }
 
-  const hudStatus = hud.querySelector('#hud-status') as HTMLElement
-  const hudPara = hud.querySelector('#hud-para') as HTMLElement
+  const progressDots = hud.querySelector('#progress-dots') as HTMLElement
+  const paraLabel = hud.querySelector('#para-label') as HTMLElement
+  const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
+  const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
   const sizeScrubber = hud.querySelector('#size-scrubber') as HTMLInputElement
   const widthScrubber = hud.querySelector('#width-scrubber') as HTMLInputElement
   const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
@@ -82,11 +137,36 @@ export function start(root: HTMLElement) {
   let engine = createEngine({ canvas, words })
 
   function updateParaIndicator() {
-    if (paragraphs.length <= 1) {
-      hudPara.textContent = ''
+    // Update progress dots (max 10 dots for readability)
+    const maxDots = Math.min(paragraphs.length, 10)
+    const showDots = paragraphs.length > 1
+
+    if (showDots) {
+      progressDots.innerHTML = Array.from({ length: maxDots }, (_, i) => {
+        const classes = ['progress-dot']
+        if (i <= currentPara) classes.push('active')
+        if (i === currentPara) classes.push('current')
+        return `<div class="${classes.join(' ')}"></div>`
+      }).join('')
+      paraLabel.textContent = paragraphs.length > 10
+        ? `¶ ${currentPara + 1}/${paragraphs.length}`
+        : ''
     } else {
-      hudPara.textContent = `para ${currentPara + 1}/${paragraphs.length}`
+      progressDots.innerHTML = ''
+      paraLabel.textContent = ''
     }
+  }
+
+  function updateLayoutButtons(activeBeat: BeatId) {
+    layoutPicker.querySelectorAll('.layout-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-beat') === activeBeat)
+    })
+  }
+
+  function updateFocusButtons(activeStyle: FocusStyleId) {
+    focusPicker.querySelectorAll('.focus-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-focus') === activeStyle)
+    })
   }
 
   function goToParagraph(index: number) {
@@ -121,11 +201,28 @@ export function start(root: HTMLElement) {
   }
 
   function updateHud(beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number) {
-    hudStatus.textContent = `${beat} · ${focusStyle} · ${sentence !== null ? sentence + 1 : '-'}/${total}`
+    updateLayoutButtons(beat)
+    updateFocusButtons(focusStyle)
     showIndicator(currentPara + 1, paragraphs.length, sentence !== null ? sentence + 1 : null, total)
   }
 
   engine.onStateChange = updateHud
+
+  // Layout picker clicks
+  layoutPicker.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.layout-btn')
+    if (!btn) return
+    const beat = btn.getAttribute('data-beat') as BeatId
+    if (beat) engine.setBeat(beat)
+  })
+
+  // Focus picker clicks
+  focusPicker.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.focus-btn')
+    if (!btn) return
+    const focus = btn.getAttribute('data-focus') as FocusStyleId
+    if (focus) engine.setFocusStyle(focus)
+  })
 
   sizeScrubber.addEventListener('input', () => {
     engine.setFontSize(parseInt(sizeScrubber.value, 10))
