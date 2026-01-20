@@ -5,9 +5,11 @@ import type { DocumentModel, Word } from './model'
 type EngineOpts = {
   canvas: HTMLCanvasElement
   words: DocumentModel
+  fontFamily?: string
+  maxContentWidth?: number
 }
 
-export function createEngine({ canvas, words: model }: EngineOpts) {
+export function createEngine({ canvas, words: model, fontFamily: fontOverride, maxContentWidth: maxWidthOverride }: EngineOpts) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('2D context not available')
   const ctx = context
@@ -19,11 +21,11 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   let hoveredSentence: number | null = null
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
-  let maxContentWidth = 800
+  let maxContentWidth = maxWidthOverride ?? 800
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
-  const fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  const fontFamily = fontOverride || 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
   const SCALE_EPS = 1.01
 
   // Cached font string to avoid allocation in hot loop
@@ -70,6 +72,9 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   let animPadX = 24
   let panY = 0
   let animPanY = 0
+  let moveSpeed = 1
+  let panSpeed = 1
+  let focusSpeed = 1
 
   function applyDPR() {
     const dpr = Math.max(1, window.devicePixelRatio || 1)
@@ -92,8 +97,10 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     fontCache.clear()
     fontCache.set(`normal|normal|${fontSize}`, fontString)
 
+    const sample = 'abcdefghijklmnopqrstuvwxyz'
+    const sampleWidth = ctx.measureText(sample).width
+    metrics.charW = sampleWidth ? sampleWidth / sample.length : fontSize * 0.6
     const m = ctx.measureText('M')
-    metrics.charW = m.width || fontSize * 0.6
     const ascent = m.actualBoundingBoxAscent || fontSize * 0.75
     const descent = m.actualBoundingBoxDescent || fontSize * 0.25
     metrics.lineH = Math.max(fontSize, (ascent + descent) * 1.35)
@@ -124,6 +131,15 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     }
     const blockH = (maxRow + 1) * metrics.lineH
     metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
+  }
+
+  function updateWordCols() {
+    const words = model.words
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const width = ctx.measureText(w.displayText).width
+      w.cols = Math.max(1, Math.ceil(width / metrics.charW))
+    }
   }
 
   /** Get words for a specific sentence */
@@ -242,6 +258,8 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   }
 
   function layoutCurrentBeat(invalidateLayout = true) {
+    measureFont()
+    updateWordCols()
     const layout = BEATS[beat].layout({ model, metrics })
     applyTargets(model.words, layout)
     sentenceCenterCache.clear()
@@ -263,7 +281,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   function stepWordAnimation(dt: number): boolean {
     // smoothing factor; dt-normalized
-    const k = -Math.expm1(LN_0_0001 * dt)
+    const k = -Math.expm1(LN_0_0001 * dt * moveSpeed)
     let active = false
 
     const words = model.words
@@ -279,7 +297,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     }
 
     // smooth padY transition
-    const kPad = -Math.expm1(LN_0_001 * dt)
+    const kPad = -Math.expm1(LN_0_001 * dt * panSpeed)
     const dPad = metrics.padY - animPadY
     if (Math.abs(dPad) > EPS) active = true
     animPadY += dPad * kPad
@@ -361,7 +379,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   }
 
   function stepFocus(dt: number): boolean {
-    const k = -Math.expm1(LN_0_01 * dt)
+    const k = -Math.expm1(LN_0_01 * dt * focusSpeed)
     const isMagnifyBeat = beat === 'magnify'
     let active = false
 
@@ -608,6 +626,12 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     getMaxWidth,
     setFontSize,
     getFontSize,
+    setMoveSpeed: (value: number) => { moveSpeed = Math.max(0.2, Math.min(3, value)) },
+    setPanSpeed: (value: number) => { panSpeed = Math.max(0.2, Math.min(3, value)) },
+    setFocusSpeed: (value: number) => { focusSpeed = Math.max(0.2, Math.min(3, value)) },
+    getMoveSpeed: () => moveSpeed,
+    getPanSpeed: () => panSpeed,
+    getFocusSpeed: () => focusSpeed,
     setBottomReserve,
     autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,

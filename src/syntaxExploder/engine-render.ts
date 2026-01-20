@@ -81,6 +81,15 @@ export function createRenderer(state: RenderState) {
     return { x, y, s }
   }
 
+  function isWordVisible(pos: WordPos): boolean {
+    const height = metrics.lineH * pos.s
+    const top = pos.y
+    const bottom = pos.y + height
+    const viewportTop = -metrics.lineH
+    const viewportBottom = window.innerHeight + metrics.lineH
+    return bottom >= viewportTop && top <= viewportBottom
+  }
+
   function drawWordText(w: Word, pos: WordPos) {
     if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
       ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
@@ -99,11 +108,14 @@ export function createRenderer(state: RenderState) {
   }
 
   function drawWordPlain(w: Word) {
-    drawWordText(w, computeWordPosition(w))
+    const pos = computeWordPosition(w)
+    if (!isWordVisible(pos)) return
+    drawWordText(w, pos)
   }
 
   function drawWordRedactRect(w: Word) {
     const pos = computeWordPosition(w)
+    if (!isWordVisible(pos)) return
     ctx.fillRect(
       pos.x,
       pos.y + 2 * pos.s,
@@ -114,6 +126,7 @@ export function createRenderer(state: RenderState) {
 
   function drawWord(w: Word) {
     const pos = computeWordPosition(w)
+    if (!isWordVisible(pos)) return
 
     // hover highlight
     const isHover = state.hoveredSentence != null && w.sentenceIndex === state.hoveredSentence

@@ -139,7 +139,6 @@ canvas {
 /* ===== Focus Picker ===== */
 .focus-picker {
   display: flex;
-  gap: 4px;
 }
 
 .focus-btn {
@@ -159,11 +158,6 @@ canvas {
 
 .focus-btn:hover {
   background: var(--btn-bg-hover);
-}
-
-.focus-btn.active {
-  background: var(--btn-bg-active);
-  font-weight: 500;
 }
 
 /* ===== Tangle Scrubbers ===== */
@@ -230,6 +224,27 @@ canvas {
   font-size: 10px;
   cursor: pointer;
   transition: background 0.12s ease;
+}
+
+.hud-extra {
+  display: none;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hud-extra.active {
+  display: flex;
+}
+
+.hud-speeds {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
 }
 
 .hud-keys .hud-toggle:hover {

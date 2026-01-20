@@ -308,6 +308,9 @@ export function createWordsMarkdown(text: string): DocumentModel {
     const lineSentenceStart = sentenceIndex
     const { style, content } = parseLine(trimmed)
     const scale = baseScaleFor(style)
+    let breakRows = 1
+    if (style === 'title') breakRows = 2
+    else if (style === 'heading') breakRows = 2
     const lineText = style === 'bullet' ? `- ${content}` : content
     const segments = parseInlineMarkers(lineText)
     const blockWeight: InlineStyle['fontWeight'] = (style === 'title' || style === 'heading') ? 'bold' : 'normal'
@@ -332,7 +335,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
     const prev = words[words.length - 1]
     if (prev && words.length > lineWordStart) {
       prev.breakAfter = true
-      prev.breakAfterRows = Math.max(prev.breakAfterRows, 1)
+      prev.breakAfterRows = Math.max(prev.breakAfterRows, breakRows)
     }
   }
 

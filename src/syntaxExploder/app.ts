@@ -40,8 +40,11 @@ const FOCUS_LABELS: Record<FocusStyleId, string> = {
 
 const STORAGE_KEY = 'reflow-text'
 const STORAGE_MARKDOWN_KEY = 'reflow-markdown'
+const DEFAULT_WIDTH = 800
+const READER_WIDTH = 680
 const MOBILE_BOTTOM_RESERVE = 60
 const isMobile = () => window.innerWidth <= 600
+const READER_FONT = '"Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif'
 
 export function start(root: HTMLElement) {
   root.innerHTML = ''
@@ -61,6 +64,11 @@ export function start(root: HTMLElement) {
   const markdownMode$ = signal(initialMarkdown)
   const debug$ = signal(Boolean((window as any).__reflowDebug))
   const viewMode$ = signal<'paragraph' | 'full'>('paragraph')
+  const extraOpen$ = signal(false)
+  const maxWidth$ = signal(initialMarkdown ? READER_WIDTH : DEFAULT_WIDTH)
+  const moveSpeed$ = signal(1)
+  const panSpeed$ = signal(1)
+  const focusSpeed$ = signal(1)
 
   // Engine state (from engine callbacks)
   const beat$ = signal<BeatId>('plain')
@@ -108,19 +116,25 @@ export function start(root: HTMLElement) {
         .join('')}
     </div>
     <div class="focus-picker" id="focus-picker">
-      ${(Object.keys(FOCUS_LABELS) as FocusStyleId[])
-        .map(id => `<button class="focus-btn" data-focus="${id}">${FOCUS_LABELS[id]}</button>`)
-        .join('')}
+      <button class="focus-btn" id="focus-toggle" type="button">Dim</button>
     </div>
     <div class="hud-scrubbers">
-      <span class="scrub-row">Aa <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
-      <span class="scrub-row">↔ <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
+      <span class="scrub-row">A <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
+      <span class="scrub-row">· W <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
     </div>
     <div class="hud-keys">
-      <span>↑↓ nav · ← → para · esc hide</span>
+      <span>↑↓ nav · ←→ para · v view · f focus · esc hide</span>
       <div class="hud-toggles">
-        <button class="hud-toggle" id="view-toggle" type="button">Full</button>
-        <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
+        <button class="hud-toggle" id="more-toggle" type="button">⋯</button>
+      </div>
+    </div>
+    <div class="hud-extra" id="hud-extra">
+      <button class="hud-toggle" id="view-toggle" type="button">Full</button>
+      <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
+      <div class="hud-speeds">
+        <span class="scrub-row">Mv <span class="scrub" id="move-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
+        <span class="scrub-row">Pn <span class="scrub" id="pan-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
+        <span class="scrub-row">Fc <span class="scrub" id="focus-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
       </div>
     </div>
   `
@@ -151,14 +165,20 @@ export function start(root: HTMLElement) {
   const paraLabel = hud.querySelector('#para-label') as HTMLElement
   const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
   const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
+  const focusToggle = hud.querySelector('#focus-toggle') as HTMLButtonElement
   const sizeScrub = hud.querySelector('#size-scrub') as HTMLSpanElement
   const widthScrub = hud.querySelector('#width-scrub') as HTMLSpanElement
   const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
   const urlInput = inputPanel.querySelector('#url-input') as HTMLInputElement
   const urlLoad = inputPanel.querySelector('#url-load') as HTMLButtonElement
   const urlStatus = inputPanel.querySelector('#url-status') as HTMLDivElement
+  const moreToggle = hud.querySelector('#more-toggle') as HTMLButtonElement
+  const hudExtra = hud.querySelector('#hud-extra') as HTMLDivElement
   const debugToggle = hud.querySelector('#debug-toggle') as HTMLButtonElement
   const viewToggle = hud.querySelector('#view-toggle') as HTMLButtonElement
+  const moveScrub = hud.querySelector('#move-scrub') as HTMLSpanElement
+  const panScrub = hud.querySelector('#pan-scrub') as HTMLSpanElement
+  const focusScrub = hud.querySelector('#focus-scrub') as HTMLSpanElement
 
   // ═══════════════════════════════════════════════════════════
   // Engine
@@ -178,7 +198,12 @@ export function start(root: HTMLElement) {
 
   function initEngine() {
     engine.destroy?.()
-    engine = createEngine({ canvas, words: words$.value })
+    engine = createEngine({
+      canvas,
+      words: words$.value,
+      fontFamily: markdownMode$.value ? READER_FONT : undefined,
+      maxContentWidth: maxWidth$.value,
+    })
     engine.onStateChange = syncEngineState
 
     if ((window as any).__reflowDebug) {
@@ -252,7 +277,22 @@ export function start(root: HTMLElement) {
   }
 
   const updateSizeDisplay = initScrubber(sizeScrub, () => engine.getFontSize(), v => engine.setFontSize(v), 20)
-  const updateWidthDisplay = initScrubber(widthScrub, () => engine.getMaxWidth(), v => engine.setMaxWidth(v), 800)
+  const updateWidthDisplay = initScrubber(widthScrub, () => engine.getMaxWidth(), v => {
+    maxWidth$.value = v
+    engine.setMaxWidth(v)
+  }, DEFAULT_WIDTH)
+  const updateMoveDisplay = initScrubber(moveScrub, () => engine.getMoveSpeed(), v => {
+    moveSpeed$.value = v
+    engine.setMoveSpeed(v)
+  }, 1)
+  const updatePanDisplay = initScrubber(panScrub, () => engine.getPanSpeed(), v => {
+    panSpeed$.value = v
+    engine.setPanSpeed(v)
+  }, 1)
+  const updateFocusDisplay = initScrubber(focusScrub, () => engine.getFocusSpeed(), v => {
+    focusSpeed$.value = v
+    engine.setFocusSpeed(v)
+  }, 1)
 
   // ═══════════════════════════════════════════════════════════
   // Effects (reactive UI updates)
@@ -364,16 +404,28 @@ export function start(root: HTMLElement) {
     `
   })
 
+  // Focus label
+  effect(() => {
+    focusToggle.textContent = FOCUS_LABELS[focusStyle$.value]
+  })
+
   // Scrubber displays
   effect(() => {
     void currentPara$.value // rerun when para changes
     updateSizeDisplay()
     updateWidthDisplay()
+    updateMoveDisplay()
+    updatePanDisplay()
+    updateFocusDisplay()
   })
 
   effect(() => {
     const label = viewMode$.value === 'full' ? 'Split' : 'Full'
     viewToggle.textContent = label
+  })
+
+  effect(() => {
+    hudExtra.classList.toggle('active', extraOpen$.value)
   })
 
   // ═══════════════════════════════════════════════════════════
@@ -497,16 +549,17 @@ export function start(root: HTMLElement) {
     if (beat) engine.setBeat(beat)
   })
 
-  focusPicker.addEventListener('click', e => {
-    const btn = (e.target as HTMLElement).closest('.focus-btn')
-    if (!btn) return
-    const focus = btn.getAttribute('data-focus') as FocusStyleId
-    if (focus) engine.setFocusStyle(focus)
+  focusToggle.addEventListener('click', () => {
+    engine.cycleFocusStyle()
   })
 
   debugToggle.addEventListener('click', () => {
     debug$.value = !debug$.value
     ;(window as any).__reflowDebug = debug$.value
+  })
+
+  moreToggle.addEventListener('click', () => {
+    extraOpen$.value = !extraOpen$.value
   })
 
   function toggleViewMode() {
