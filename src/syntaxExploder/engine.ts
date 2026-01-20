@@ -17,9 +17,11 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   let hoveredSentence: number | null = null
 
-  let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number) => void) | null = null
+  let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
   let maxContentWidth = 800
   let fontSize = 20
+  let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
+  let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
 
   // Cached font string to avoid allocation in hot loop
   let fontString = ''
@@ -28,7 +30,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
 
   function notifyStateChange() {
-    onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount)
+    onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount, sentenceOnlyMode)
   }
 
   const metrics: Metrics = {
@@ -82,12 +84,111 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - blockW) / 2))
 
     // Estimate vertical height based on current targets to center vertically
+    // Account for bottomReserve (HUD on mobile)
+    const availableHeight = window.innerHeight - bottomReserve
     let maxRow = 0
     for (const w of model.words) {
       if (w.targetRow > maxRow) maxRow = w.targetRow
     }
     const blockH = (maxRow + 1) * metrics.lineH
-    metrics.padY = Math.max(16, Math.floor((window.innerHeight - blockH) / 2))
+    metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
+  }
+
+  /** Get words for a specific sentence */
+  function getSentenceWords(sentenceIndex: number): Word[] {
+    return model.words.filter(w => w.sentenceIndex === sentenceIndex)
+  }
+
+  /** Calculate content bounds for given words */
+  function getContentBounds(words: Word[]): { maxRow: number; maxCol: number } {
+    let maxRow = 0
+    let maxCol = 0
+    for (const w of words) {
+      if (w.targetRow > maxRow) maxRow = w.targetRow
+      if (w.targetCol + w.cols > maxCol) maxCol = w.targetCol + w.cols
+    }
+    return { maxRow, maxCol }
+  }
+
+  /** Check if content fits in available space */
+  function contentFits(words: Word[]): boolean {
+    const availableHeight = window.innerHeight - bottomReserve - 32
+    const availableWidth = window.innerWidth - 32
+    const { maxRow } = getContentBounds(words)
+    const contentHeight = (maxRow + 1) * metrics.lineH + 32
+    const contentWidth = metrics.maxCols * metrics.charW
+    return contentHeight <= availableHeight && contentWidth <= availableWidth
+  }
+
+  /** Auto-fit font size. Returns true if paragraph fits, false if switched to sentence-only mode */
+  function autoFitFontSize(): boolean {
+    sentenceOnlyMode = false
+
+    // Binary search for optimal font size for full paragraph
+    let minSize = 14
+    let maxSize = 48
+    let bestSize = minSize
+
+    while (minSize <= maxSize) {
+      const testSize = Math.floor((minSize + maxSize) / 2)
+      fontSize = testSize
+      measureFont()
+      layoutCurrentBeat()
+
+      if (contentFits(model.words)) {
+        bestSize = testSize
+        minSize = testSize + 1
+      } else {
+        maxSize = testSize - 1
+      }
+    }
+
+    // Apply best size
+    fontSize = bestSize
+    measureFont()
+    layoutCurrentBeat()
+
+    // Check if even minimum doesn't fit - switch to sentence-only mode
+    if (!contentFits(model.words)) {
+      sentenceOnlyMode = true
+      fitCurrentSentence()
+      notifyStateChange()
+      return false
+    }
+
+    notifyStateChange()
+    return true
+  }
+
+  /** Fit just the current sentence to screen */
+  function fitCurrentSentence() {
+    if (hoveredSentence === null) return
+
+    const sentenceWords = getSentenceWords(hoveredSentence)
+    if (sentenceWords.length === 0) return
+
+    // Binary search for optimal font size for this sentence
+    let minSize = 16
+    let maxSize = 64
+    let bestSize = minSize
+
+    while (minSize <= maxSize) {
+      const testSize = Math.floor((minSize + maxSize) / 2)
+      fontSize = testSize
+      measureFont()
+      layoutCurrentBeat()
+
+      if (contentFits(sentenceWords)) {
+        bestSize = testSize
+        minSize = testSize + 1
+      } else {
+        maxSize = testSize - 1
+      }
+    }
+
+    fontSize = bestSize
+    measureFont()
+    layoutCurrentBeat()
   }
 
   function layoutCurrentBeat() {
@@ -306,8 +407,16 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     ctx.font = fontString
     ctx.fillStyle = '#111'
     ctx.globalAlpha = 1
-    const words = model.words
-    for (let i = 0; i < words.length; i++) drawWord(words[i])
+
+    // In sentence-only mode, only draw the current sentence
+    if (sentenceOnlyMode && hoveredSentence !== null) {
+      for (const w of model.words) {
+        if (w.sentenceIndex === hoveredSentence) drawWord(w)
+      }
+    } else {
+      const words = model.words
+      for (let i = 0; i < words.length; i++) drawWord(words[i])
+    }
 
     requestAnimationFrame(frame)
   }
@@ -353,6 +462,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   function nextSentence(): 'ok' | 'wrap' {
     if (hoveredSentence === null) {
       hoveredSentence = 0
+      if (sentenceOnlyMode) fitCurrentSentence()
       notifyStateChange()
       return 'ok'
     }
@@ -360,6 +470,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       return 'wrap'
     }
     hoveredSentence++
+    if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     return 'ok'
   }
@@ -368,6 +479,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   function prevSentence(): 'ok' | 'wrap' {
     if (hoveredSentence === null) {
       hoveredSentence = model.sentenceCount - 1
+      if (sentenceOnlyMode) fitCurrentSentence()
       notifyStateChange()
       return 'ok'
     }
@@ -375,12 +487,14 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
       return 'wrap'
     }
     hoveredSentence--
+    if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     return 'ok'
   }
 
   function goToLastSentence() {
     hoveredSentence = model.sentenceCount - 1
+    if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
   }
 
@@ -404,6 +518,12 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     return fontSize
   }
 
+  function setBottomReserve(h: number) {
+    bottomReserve = h
+    measureFont()
+    layoutCurrentBeat()
+  }
+
   return {
     start,
     setBeat,
@@ -416,6 +536,9 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     getMaxWidth,
     setFontSize,
     getFontSize,
+    setBottomReserve,
+    autoFitFontSize,
+    isSentenceOnlyMode: () => sentenceOnlyMode,
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
   }
 }

@@ -1,3 +1,4 @@
+import { signal, computed, effect, batch } from '@preact/signals-core'
 import { createWords, splitParagraphs, DEFAULT_TEXT } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
@@ -37,50 +38,69 @@ const FOCUS_LABELS: Record<FocusStyleId, string> = {
   none: 'Off',
 }
 
+const STORAGE_KEY = 'reflow-text'
+const MOBILE_BOTTOM_RESERVE = 60
+const isMobile = () => window.innerWidth <= 600
+
 export function start(root: HTMLElement) {
   root.innerHTML = ''
+
+  // ═══════════════════════════════════════════════════════════
+  // Signals
+  // ═══════════════════════════════════════════════════════════
+
+  const savedText = localStorage.getItem(STORAGE_KEY)
+  const text$ = signal(savedText || DEFAULT_TEXT)
+  const currentPara$ = signal(0)
+  const inputMode$ = signal(false)
+  const hudCollapsed$ = signal(isMobile())
+
+  // Engine state (from engine callbacks)
+  const beat$ = signal<BeatId>('plain')
+  const focusStyle$ = signal<FocusStyleId>('dither')
+  const sentence$ = signal<number | null>(0)
+  const sentenceCount$ = signal(1)
+  const sentenceOnlyMode$ = signal(false)
+
+  // Derived
+  const paragraphs$ = computed(() => splitParagraphs(text$.value))
+  const currentParaText$ = computed(() => paragraphs$.value[currentPara$.value] || '')
+  const words$ = computed(() => createWords(currentParaText$.value))
+
+  // ═══════════════════════════════════════════════════════════
+  // DOM Setup
+  // ═══════════════════════════════════════════════════════════
 
   const canvas = document.createElement('canvas')
   canvas.id = 'canv'
   root.appendChild(canvas)
 
-  // HUD element (outside canvas)
   const hud = document.createElement('div')
   hud.id = 'hud'
   hud.innerHTML = `
+    <div class="hud-handle"></div>
     <div class="hud-progress">
       <div class="progress-dots" id="progress-dots"></div>
       <span class="para-label" id="para-label"></span>
     </div>
     <div class="layout-picker" id="layout-picker">
       ${(Object.keys(LAYOUT_ICONS) as BeatId[])
-        .map(
-          (id) =>
-            `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}" aria-label="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`
-        )
+        .map(id => `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`)
         .join('')}
     </div>
     <div class="focus-picker" id="focus-picker">
       ${(Object.keys(FOCUS_LABELS) as FocusStyleId[])
-        .map(
-          (id) =>
-            `<button class="focus-btn" data-focus="${id}">${FOCUS_LABELS[id]}</button>`
-        )
+        .map(id => `<button class="focus-btn" data-focus="${id}">${FOCUS_LABELS[id]}</button>`)
         .join('')}
     </div>
-    <div class="hud-slider">
-      <span class="slider-label">Aa</span>
-      <input type="range" id="size-scrubber" min="12" max="40" value="20">
-    </div>
-    <div class="hud-slider">
-      <span class="slider-label">↔</span>
-      <input type="range" id="width-scrubber" min="300" max="1200" value="800">
+    <div class="hud-scrubbers">
+      <span class="scrub-row">Aa <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
+      <span class="scrub-row">↔ <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
     </div>
     <div class="hud-keys">↑↓ nav · ← → para · esc hide</div>
   `
   root.appendChild(hud)
 
-  // Input panel (bottom sheet)
   const inputPanel = document.createElement('div')
   inputPanel.id = 'input-panel'
   inputPanel.innerHTML = `
@@ -89,205 +109,275 @@ export function start(root: HTMLElement) {
   `
   root.appendChild(inputPanel)
 
-  // Center position indicator
   const centerIndicator = document.createElement('div')
   centerIndicator.id = 'center-indicator'
   root.appendChild(centerIndicator)
 
+  const progressDots = hud.querySelector('#progress-dots') as HTMLElement
+  const paraLabel = hud.querySelector('#para-label') as HTMLElement
+  const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
+  const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
+  const sizeScrub = hud.querySelector('#size-scrub') as HTMLSpanElement
+  const widthScrub = hud.querySelector('#width-scrub') as HTMLSpanElement
+  const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
+
+  // ═══════════════════════════════════════════════════════════
+  // Engine
+  // ═══════════════════════════════════════════════════════════
+
+  let engine = createEngine({ canvas, words: words$.value })
+
+  function syncEngineState(b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) {
+    batch(() => {
+      beat$.value = b
+      focusStyle$.value = f
+      sentence$.value = s
+      sentenceCount$.value = total
+      sentenceOnlyMode$.value = sOnly
+    })
+  }
+
+  function initEngine() {
+    engine = createEngine({ canvas, words: words$.value })
+    engine.onStateChange = syncEngineState
+
+    if (isMobile()) {
+      engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
+      engine.setBeat('plain')
+      engine.start()
+      engine.autoFitFontSize()
+    } else {
+      engine.setBeat('plain')
+      engine.start()
+    }
+  }
+
+  // Reinit engine when paragraph changes
+  effect(() => {
+    void currentParaText$.value // subscribe
+    initEngine()
+  })
+
+  // ═══════════════════════════════════════════════════════════
+  // Scrubbers
+  // ═══════════════════════════════════════════════════════════
+
+  const DOUBLE_TAP_MS = 350
+  function initScrubber(el: HTMLSpanElement, getValue: () => number, setValue: (v: number) => void, defaultVal: number) {
+    const min = parseFloat(el.dataset.min || '0')
+    const max = parseFloat(el.dataset.max || '100')
+    const step = parseFloat(el.dataset.step || '1')
+    let startX = 0, startVal = 0, lastTap = 0
+
+    const updateDisplay = () => { el.textContent = String(Math.round(getValue())) }
+
+    const onMove = (e: PointerEvent) => {
+      const dx = e.clientX - startX
+      let newVal = startVal + dx * (max - min) / 200
+      newVal = Math.round(newVal / step) * step
+      newVal = Math.max(min, Math.min(max, newVal))
+      setValue(newVal)
+      updateDisplay()
+    }
+
+    const onUp = () => {
+      el.classList.remove('active')
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      const now = Date.now()
+      if (now - lastTap < DOUBLE_TAP_MS) {
+        setValue(defaultVal)
+        updateDisplay()
+        lastTap = 0
+        return
+      }
+      lastTap = now
+      startX = e.clientX
+      startVal = getValue()
+      el.classList.add('active')
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+    })
+
+    return updateDisplay
+  }
+
+  const updateSizeDisplay = initScrubber(sizeScrub, () => engine.getFontSize(), v => engine.setFontSize(v), 20)
+  const updateWidthDisplay = initScrubber(widthScrub, () => engine.getMaxWidth(), v => engine.setMaxWidth(v), 800)
+
+  // ═══════════════════════════════════════════════════════════
+  // Effects (reactive UI updates)
+  // ═══════════════════════════════════════════════════════════
+
+  // Progress dots
+  effect(() => {
+    const paras = paragraphs$.value
+    const current = currentPara$.value
+    const maxDots = Math.min(paras.length, 10)
+
+    if (paras.length > 1) {
+      progressDots.innerHTML = Array.from({ length: maxDots }, (_, i) => {
+        const classes = ['progress-dot']
+        if (i <= current) classes.push('active')
+        if (i === current) classes.push('current')
+        return `<div class="${classes.join(' ')}"></div>`
+      }).join('')
+      paraLabel.textContent = paras.length > 10 ? `¶ ${current + 1}/${paras.length}` : ''
+    } else {
+      progressDots.innerHTML = ''
+      paraLabel.textContent = ''
+    }
+  })
+
+  // Layout buttons
+  effect(() => {
+    const active = beat$.value
+    layoutPicker.querySelectorAll('.layout-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-beat') === active)
+    })
+  })
+
+  // Focus buttons
+  effect(() => {
+    const active = focusStyle$.value
+    focusPicker.querySelectorAll('.focus-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-focus') === active)
+    })
+  })
+
+  // Center indicator
   let indicatorTimeout: ReturnType<typeof setTimeout> | null = null
-  function showIndicator(paraNum: number, paraTotal: number, sentNum: number | null, sentTotal: number) {
+  effect(() => {
+    const paraNum = currentPara$.value + 1
+    const paraTotal = paragraphs$.value.length
+    const sentNum = sentence$.value !== null ? sentence$.value + 1 : null
+    const sentTotal = sentenceCount$.value
+    const sOnly = sentenceOnlyMode$.value
     const isAtEnd = paraNum === paraTotal && sentNum === sentTotal
 
     if (isAtEnd) {
       centerIndicator.textContent = '✓ end · r to restart'
       centerIndicator.classList.add('visible', 'at-end')
       if (indicatorTimeout) clearTimeout(indicatorTimeout)
-      // Don't auto-hide at end
       return
     }
 
     centerIndicator.classList.remove('at-end')
     const parts: string[] = []
     if (paraTotal > 1) parts.push(`¶${paraNum}/${paraTotal}`)
-    if (sentNum !== null) parts.push(`${sentNum}/${sentTotal}`)
+    if (sentNum !== null) parts.push(sOnly ? `sentence ${sentNum}/${sentTotal}` : `${sentNum}/${sentTotal}`)
     centerIndicator.textContent = parts.join(' · ')
     centerIndicator.classList.add('visible')
 
     if (indicatorTimeout) clearTimeout(indicatorTimeout)
-    indicatorTimeout = setTimeout(() => {
-      centerIndicator.classList.remove('visible')
-    }, 1200)
-  }
+    indicatorTimeout = setTimeout(() => centerIndicator.classList.remove('visible'), 1200)
+  })
 
-  const progressDots = hud.querySelector('#progress-dots') as HTMLElement
-  const paraLabel = hud.querySelector('#para-label') as HTMLElement
-  const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
-  const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
-  const sizeScrubber = hud.querySelector('#size-scrubber') as HTMLInputElement
-  const widthScrubber = hud.querySelector('#width-scrubber') as HTMLInputElement
-  const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
+  // HUD collapsed state
+  effect(() => {
+    hud.classList.toggle('collapsed', hudCollapsed$.value && isMobile())
+    hud.classList.toggle('hidden', !isMobile() && hudCollapsed$.value)
+  })
 
-  const STORAGE_KEY = 'reflow-text'
-  const savedText = localStorage.getItem(STORAGE_KEY)
-  const initialText = savedText || DEFAULT_TEXT
+  // Input mode
+  effect(() => {
+    inputPanel.classList.toggle('open', inputMode$.value)
+  })
 
-  let paragraphs = splitParagraphs(initialText)
-  let currentPara = 0
-  let words = createWords(paragraphs[currentPara] || '')
-  let engine = createEngine({ canvas, words })
+  // Scrubber displays
+  effect(() => {
+    void currentPara$.value // rerun when para changes
+    updateSizeDisplay()
+    updateWidthDisplay()
+  })
 
-  function updateParaIndicator() {
-    // Update progress dots (max 10 dots for readability)
-    const maxDots = Math.min(paragraphs.length, 10)
-    const showDots = paragraphs.length > 1
-
-    if (showDots) {
-      progressDots.innerHTML = Array.from({ length: maxDots }, (_, i) => {
-        const classes = ['progress-dot']
-        if (i <= currentPara) classes.push('active')
-        if (i === currentPara) classes.push('current')
-        return `<div class="${classes.join(' ')}"></div>`
-      }).join('')
-      paraLabel.textContent = paragraphs.length > 10
-        ? `¶ ${currentPara + 1}/${paragraphs.length}`
-        : ''
-    } else {
-      progressDots.innerHTML = ''
-      paraLabel.textContent = ''
-    }
-  }
-
-  function updateLayoutButtons(activeBeat: BeatId) {
-    layoutPicker.querySelectorAll('.layout-btn').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-beat') === activeBeat)
-    })
-  }
-
-  function updateFocusButtons(activeStyle: FocusStyleId) {
-    focusPicker.querySelectorAll('.focus-btn').forEach((btn) => {
-      btn.classList.toggle('active', btn.getAttribute('data-focus') === activeStyle)
-    })
-  }
+  // ═══════════════════════════════════════════════════════════
+  // Actions
+  // ═══════════════════════════════════════════════════════════
 
   function goToParagraph(index: number) {
-    if (index < 0 || index >= paragraphs.length) return
-    currentPara = index
-    words = createWords(paragraphs[currentPara])
-    engine = createEngine({ canvas, words })
-    engine.onStateChange = updateHud
-    engine.setBeat('plain')
-    engine.start()
-    updateParaIndicator()
+    const paras = paragraphs$.value
+    if (index < 0 || index >= paras.length) return
+    currentPara$.value = index
   }
 
   function nextParagraph(): boolean {
-    if (currentPara < paragraphs.length - 1) {
-      goToParagraph(currentPara + 1)
+    if (currentPara$.value < paragraphs$.value.length - 1) {
+      currentPara$.value++
       return true
     }
     return false
   }
 
   function prevParagraph(): boolean {
-    if (currentPara > 0) {
-      goToParagraph(currentPara - 1)
+    if (currentPara$.value > 0) {
+      currentPara$.value--
       return true
     }
     return false
   }
 
-  function restart() {
-    goToParagraph(0)
+  function toggleHud() {
+    hudCollapsed$.value = !hudCollapsed$.value
   }
 
-  function updateHud(beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number) {
-    updateLayoutButtons(beat)
-    updateFocusButtons(focusStyle)
-    showIndicator(currentPara + 1, paragraphs.length, sentence !== null ? sentence + 1 : null, total)
+  function openInput() {
+    inputMode$.value = true
+    textInput.value = ''
+    requestAnimationFrame(() => textInput.focus())
   }
 
-  engine.onStateChange = updateHud
+  function closeInput(submit: boolean) {
+    inputMode$.value = false
+    if (submit && textInput.value.trim()) {
+      const newText = textInput.value.trim()
+      localStorage.setItem(STORAGE_KEY, newText)
+      batch(() => {
+        text$.value = newText
+        currentPara$.value = 0
+      })
+    }
+  }
 
-  // Layout picker clicks
-  layoutPicker.addEventListener('click', (e) => {
+  // ═══════════════════════════════════════════════════════════
+  // Event Handlers
+  // ═══════════════════════════════════════════════════════════
+
+  layoutPicker.addEventListener('click', e => {
     const btn = (e.target as HTMLElement).closest('.layout-btn')
     if (!btn) return
     const beat = btn.getAttribute('data-beat') as BeatId
     if (beat) engine.setBeat(beat)
   })
 
-  // Focus picker clicks
-  focusPicker.addEventListener('click', (e) => {
+  focusPicker.addEventListener('click', e => {
     const btn = (e.target as HTMLElement).closest('.focus-btn')
     if (!btn) return
     const focus = btn.getAttribute('data-focus') as FocusStyleId
     if (focus) engine.setFocusStyle(focus)
   })
 
-  sizeScrubber.addEventListener('input', () => {
-    engine.setFontSize(parseInt(sizeScrubber.value, 10))
-  })
-
-  widthScrubber.addEventListener('input', () => {
-    engine.setMaxWidth(parseInt(widthScrubber.value, 10))
-  })
-
-  function setBeat(beat: BeatId) {
-    engine.setBeat(beat)
-  }
-
-  function toggleHud() {
-    hud.classList.toggle('hidden')
-  }
-
-  let inputMode = false
-
-  function openInput() {
-    inputMode = true
-    inputPanel.classList.add('open')
-    textInput.value = ''
-    // Delay focus to avoid 'i' being typed
-    requestAnimationFrame(() => textInput.focus())
-  }
-
-  function closeInput(submit: boolean) {
-    inputMode = false
-    inputPanel.classList.remove('open')
-
-    if (submit && textInput.value.trim()) {
-      const newText = textInput.value.trim()
-      localStorage.setItem(STORAGE_KEY, newText)
-      paragraphs = splitParagraphs(newText)
-      currentPara = 0
-      words = createWords(paragraphs[0] || '')
-      engine = createEngine({ canvas, words })
-      engine.onStateChange = updateHud
-      engine.setBeat('plain')
-      engine.start()
-      updateParaIndicator()
-    }
-  }
-
-  textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeInput(true)
-    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  textInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
       e.preventDefault()
       closeInput(true)
     }
   })
 
-  window.addEventListener('keydown', (e) => {
-    if (inputMode) return // don't handle keys when input is open
+  window.addEventListener('keydown', e => {
+    if (inputMode$.value) return
 
     const key = e.key.toLowerCase()
-    if (key === '1') setBeat('plain')
-    else if (key === '2') setBeat('cascade')
-    else if (key === '3') setBeat('tree')
-    else if (key === '4') setBeat('list')
-    else if (key === '5') setBeat('magnify')
-    else if (key === '6') setBeat('radial')
+    if (key === '1') engine.setBeat('plain')
+    else if (key === '2') engine.setBeat('cascade')
+    else if (key === '3') engine.setBeat('tree')
+    else if (key === '4') engine.setBeat('list')
+    else if (key === '5') engine.setBeat('magnify')
+    else if (key === '6') engine.setBeat('radial')
     else if (key === 'j' || e.key === 'ArrowDown') {
       if (engine.nextSentence() === 'wrap') nextParagraph()
     }
@@ -299,17 +389,15 @@ export function start(root: HTMLElement) {
     else if (key === 'l' || e.key === 'ArrowRight') nextParagraph()
     else if (key === 'h' || e.key === 'ArrowLeft') prevParagraph()
     else if (key === 'f') engine.cycleFocusStyle()
-    else if (key === 'r') restart()
+    else if (key === 'r') goToParagraph(0)
     else if (key === 'i') { e.preventDefault(); openInput() }
     else if (e.key === 'Escape') toggleHud()
   })
 
-  // Mobile: swipe gestures
-  let touchStartX = 0
-  let touchStartY = 0
-  let touchStartTime = 0
+  // Mobile swipes
+  let touchStartX = 0, touchStartY = 0, touchStartTime = 0
 
-  canvas.addEventListener('touchstart', (e) => {
+  canvas.addEventListener('touchstart', e => {
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX
       touchStartY = e.touches[0].clientY
@@ -317,78 +405,43 @@ export function start(root: HTMLElement) {
     }
   }, { passive: true })
 
-  canvas.addEventListener('touchend', (e) => {
+  canvas.addEventListener('touchend', e => {
     if (e.changedTouches.length !== 1) return
-
     const dx = e.changedTouches[0].clientX - touchStartX
     const dy = e.changedTouches[0].clientY - touchStartY
     const dt = Date.now() - touchStartTime
-
-    // Must be a quick swipe (< 300ms) with enough distance (> 50px)
     if (dt > 300) return
 
-    const absX = Math.abs(dx)
-    const absY = Math.abs(dy)
-
-    if (absX < 50 && absY < 50) {
-      // Tap - toggle HUD
-      toggleHud()
-      return
-    }
+    const absX = Math.abs(dx), absY = Math.abs(dy)
+    if (absX < 50 && absY < 50) { toggleHud(); return }
 
     if (absX > absY) {
-      // Horizontal swipe
       if (dx > 50) prevParagraph()
       else if (dx < -50) nextParagraph()
     } else {
-      // Vertical swipe
       if (dy > 50) {
-        if (engine.prevSentence() === 'wrap') {
-          if (prevParagraph()) engine.goToLastSentence()
-        }
+        if (engine.prevSentence() === 'wrap' && prevParagraph()) engine.goToLastSentence()
       } else if (dy < -50) {
         if (engine.nextSentence() === 'wrap') nextParagraph()
       }
     }
   }, { passive: true })
 
-  // Mobile: nav buttons
-  const mobileNav = document.createElement('div')
-  mobileNav.id = 'mobile-nav'
-  mobileNav.innerHTML = `
-    <button class="nav-btn" data-action="prev-para">←</button>
-    <button class="nav-btn" data-action="prev-sent">↑</button>
-    <button class="nav-btn" data-action="next-sent">↓</button>
-    <button class="nav-btn" data-action="next-para">→</button>
-  `
-  root.appendChild(mobileNav)
-
-  mobileNav.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('.nav-btn')
-    if (!btn) return
-    const action = btn.getAttribute('data-action')
-    if (action === 'prev-para') prevParagraph()
-    else if (action === 'next-para') nextParagraph()
-    else if (action === 'prev-sent') {
-      if (engine.prevSentence() === 'wrap') {
-        if (prevParagraph()) engine.goToLastSentence()
-      }
-    }
-    else if (action === 'next-sent') {
-      if (engine.nextSentence() === 'wrap') nextParagraph()
-    }
+  hud.addEventListener('click', e => {
+    if (!isMobile()) return
+    const target = e.target as HTMLElement
+    if (target.closest('.layout-picker') || target.closest('.focus-picker') || target.closest('.hud-scrubbers')) return
+    hudCollapsed$.value = !hudCollapsed$.value
   })
 
-  // initial
-  engine.setBeat('plain')
-  engine.start()
-  updateParaIndicator()
+  // ═══════════════════════════════════════════════════════════
+  // Init
+  // ═══════════════════════════════════════════════════════════
 
-  // expose for REPL tinkering
-  ;(window as any).syntaxExploder = {
-    engine,
-    words,
-    BEATS,
-    setBeat,
-  }
+  initEngine()
+  updateSizeDisplay()
+  updateWidthDisplay()
+
+  // Expose for debugging
+  ;(window as any).syntaxExploder = { engine, paragraphs$, currentPara$, BEATS }
 }
