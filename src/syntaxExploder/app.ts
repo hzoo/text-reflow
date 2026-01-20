@@ -17,6 +17,10 @@ export function start(root: HTMLElement) {
     <div class="hud-line" id="hud-para"></div>
     <div class="hud-line hud-keys">1-6: layout  hjkl/arrows: nav  f: focus  i: input  esc: hide</div>
     <div class="hud-scrubber">
+      <label>size</label>
+      <input type="range" id="size-scrubber" min="12" max="40" value="20">
+    </div>
+    <div class="hud-scrubber">
       <label>width</label>
       <input type="range" id="width-scrubber" min="300" max="1200" value="800">
     </div>
@@ -64,6 +68,7 @@ export function start(root: HTMLElement) {
 
   const hudStatus = hud.querySelector('#hud-status') as HTMLElement
   const hudPara = hud.querySelector('#hud-para') as HTMLElement
+  const sizeScrubber = hud.querySelector('#size-scrubber') as HTMLInputElement
   const widthScrubber = hud.querySelector('#width-scrubber') as HTMLInputElement
   const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
 
@@ -121,6 +126,10 @@ export function start(root: HTMLElement) {
   }
 
   engine.onStateChange = updateHud
+
+  sizeScrubber.addEventListener('input', () => {
+    engine.setFontSize(parseInt(sizeScrubber.value, 10))
+  })
 
   widthScrubber.addEventListener('input', () => {
     engine.setMaxWidth(parseInt(widthScrubber.value, 10))
@@ -196,6 +205,81 @@ export function start(root: HTMLElement) {
     else if (key === 'r') restart()
     else if (key === 'i') { e.preventDefault(); openInput() }
     else if (e.key === 'Escape') toggleHud()
+  })
+
+  // Mobile: swipe gestures
+  let touchStartX = 0
+  let touchStartY = 0
+  let touchStartTime = 0
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchStartX = e.touches[0].clientX
+      touchStartY = e.touches[0].clientY
+      touchStartTime = Date.now()
+    }
+  }, { passive: true })
+
+  canvas.addEventListener('touchend', (e) => {
+    if (e.changedTouches.length !== 1) return
+
+    const dx = e.changedTouches[0].clientX - touchStartX
+    const dy = e.changedTouches[0].clientY - touchStartY
+    const dt = Date.now() - touchStartTime
+
+    // Must be a quick swipe (< 300ms) with enough distance (> 50px)
+    if (dt > 300) return
+
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+
+    if (absX < 50 && absY < 50) {
+      // Tap - toggle HUD
+      toggleHud()
+      return
+    }
+
+    if (absX > absY) {
+      // Horizontal swipe
+      if (dx > 50) prevParagraph()
+      else if (dx < -50) nextParagraph()
+    } else {
+      // Vertical swipe
+      if (dy > 50) {
+        if (engine.prevSentence() === 'wrap') {
+          if (prevParagraph()) engine.goToLastSentence()
+        }
+      } else if (dy < -50) {
+        if (engine.nextSentence() === 'wrap') nextParagraph()
+      }
+    }
+  }, { passive: true })
+
+  // Mobile: nav buttons
+  const mobileNav = document.createElement('div')
+  mobileNav.id = 'mobile-nav'
+  mobileNav.innerHTML = `
+    <button class="nav-btn" data-action="prev-para">←</button>
+    <button class="nav-btn" data-action="prev-sent">↑</button>
+    <button class="nav-btn" data-action="next-sent">↓</button>
+    <button class="nav-btn" data-action="next-para">→</button>
+  `
+  root.appendChild(mobileNav)
+
+  mobileNav.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.nav-btn')
+    if (!btn) return
+    const action = btn.getAttribute('data-action')
+    if (action === 'prev-para') prevParagraph()
+    else if (action === 'next-para') nextParagraph()
+    else if (action === 'prev-sent') {
+      if (engine.prevSentence() === 'wrap') {
+        if (prevParagraph()) engine.goToLastSentence()
+      }
+    }
+    else if (action === 'next-sent') {
+      if (engine.nextSentence() === 'wrap') nextParagraph()
+    }
   })
 
   // initial
