@@ -6,29 +6,13 @@ import { markdownToParagraphs, markdownToReadingText, stripInlineMarkers, stripJ
 
 // SVG icons for layout buttons
 const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
-  plain: {
-    label: 'Flow',
+  reader: {
+    label: 'Reader',
     svg: `<svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h12M4 18h8"/></svg>`,
   },
-  cascade: {
-    label: 'Build',
-    svg: `<svg viewBox="0 0 24 24"><path d="M4 18h4M4 14h8M4 10h12M4 6h16"/></svg>`,
-  },
-  tree: {
-    label: 'Spread',
-    svg: `<svg viewBox="0 0 24 24"><path d="M12 4v4M12 8l-6 4M12 8l6 4M6 12l-2 4M6 12l2 4M18 12l-2 4M18 12l2 4"/></svg>`,
-  },
-  list: {
-    label: 'Lines',
-    svg: `<svg viewBox="0 0 24 24"><path d="M8 6h12M8 10h12M8 14h12M8 18h12"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="10" r="1" fill="currentColor"/><circle cx="4" cy="14" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>`,
-  },
-  magnify: {
-    label: 'Zoom',
-    svg: `<svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/></svg>`,
-  },
-  radial: {
-    label: 'Burst',
-    svg: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+  ladder: {
+    label: 'Ladder',
+    svg: `<svg viewBox="0 0 24 24"><path d="M4 6h10M8 10h12M4 14h10M8 18h12"/></svg>`,
   },
 }
 
@@ -71,7 +55,7 @@ export function start(root: HTMLElement) {
   const focusSpeed$ = signal(1)
 
   // Engine state (from engine callbacks)
-  const beat$ = signal<BeatId>('plain')
+  const beat$ = signal<BeatId>('reader')
   const focusStyle$ = signal<FocusStyleId>('gray')
   const sentence$ = signal<number | null>(0)
   const sentenceCount$ = signal(1)
@@ -203,6 +187,7 @@ export function start(root: HTMLElement) {
       words: words$.value,
       fontFamily: markdownMode$.value ? READER_FONT : undefined,
       maxContentWidth: maxWidth$.value,
+      pixelLayout: true,
     })
     engine.onStateChange = syncEngineState
 
@@ -213,11 +198,11 @@ export function start(root: HTMLElement) {
 
     if (isMobile()) {
       engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
-      engine.setBeat('plain')
+      engine.setBeat('reader')
       engine.start()
       engine.autoFitFontSize()
     } else {
-      engine.setBeat('plain')
+      engine.setBeat('reader')
       engine.start()
     }
   }
@@ -596,12 +581,8 @@ export function start(root: HTMLElement) {
     if (inputMode$.value) return
 
     const key = e.key.toLowerCase()
-    if (key === '1') engine.setBeat('plain')
-    else if (key === '2') engine.setBeat('cascade')
-    else if (key === '3') engine.setBeat('tree')
-    else if (key === '4') engine.setBeat('list')
-    else if (key === '5') engine.setBeat('magnify')
-    else if (key === '6') engine.setBeat('radial')
+    if (key === '1') engine.setBeat('reader')
+    else if (key === '2') engine.setBeat('ladder')
     else if (key === 'j' || e.key === 'ArrowDown') {
       if (engine.nextSentence() === 'wrap') nextParagraph()
     }

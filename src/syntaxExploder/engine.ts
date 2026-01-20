@@ -7,21 +7,23 @@ type EngineOpts = {
   words: DocumentModel
   fontFamily?: string
   maxContentWidth?: number
+  pixelLayout?: boolean
 }
 
-export function createEngine({ canvas, words: model, fontFamily: fontOverride, maxContentWidth: maxWidthOverride }: EngineOpts) {
+export function createEngine({ canvas, words: model, fontFamily: fontOverride, maxContentWidth: maxWidthOverride, pixelLayout: pixelLayoutOverride }: EngineOpts) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('2D context not available')
   const ctx = context
 
   let running = false
-  let beat: BeatId = 'plain'
+  let beat: BeatId = 'reader'
   let focusStyle: FocusStyleId = 'gray'
 
   let hoveredSentence: number | null = null
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
   let maxContentWidth = maxWidthOverride ?? 800
+  let pixelLayout = pixelLayoutOverride ?? false
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
@@ -113,8 +115,13 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const effectiveMaxWidth = Math.min(viewportWidth, maxContentWidth)
 
     // Calculate cols that fit
-    const maxPossibleCols = Math.floor(effectiveMaxWidth / metrics.charW)
-    metrics.maxCols = Math.max(20, Math.min(100, maxPossibleCols))
+    if (pixelLayout) {
+      metrics.charW = 1
+      metrics.maxCols = Math.max(200, Math.floor(effectiveMaxWidth))
+    } else {
+      const maxPossibleCols = Math.floor(effectiveMaxWidth / metrics.charW)
+      metrics.maxCols = Math.max(20, Math.min(100, maxPossibleCols))
+    }
 
     // Center block horizontally
     const blockW = metrics.maxCols * metrics.charW
@@ -138,7 +145,10 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       const width = ctx.measureText(w.displayText).width
-      w.cols = Math.max(1, Math.ceil(width / metrics.charW))
+      w.pixelWidth = width
+      if (!pixelLayout) {
+        w.cols = Math.max(1, Math.ceil(width / metrics.charW))
+      }
     }
   }
 
@@ -371,7 +381,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   function sentenceYOffset(sentenceIndex: number): number {
     if (hoveredSentence == null) return 0
     
-    const baseGap = beat === 'magnify' ? 80 : 48
+    const baseGap = 48
     
     if (sentenceIndex < hoveredSentence) return -baseGap / 2
     if (sentenceIndex > hoveredSentence) return baseGap / 2
@@ -380,7 +390,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   function stepFocus(dt: number): boolean {
     const k = -Math.expm1(LN_0_01 * dt * focusSpeed)
-    const isMagnifyBeat = beat === 'magnify'
+    const isMagnifyBeat = false
     let active = false
 
     const words = model.words
@@ -512,6 +522,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   function setBeat(next: BeatId) {
     beat = next
+    pixelLayout = true
     layoutCurrentBeat()
     notifyStateChange()
   }

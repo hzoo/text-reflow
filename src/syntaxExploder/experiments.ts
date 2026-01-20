@@ -1,7 +1,7 @@
-import { layoutCascade, layoutListAware, layoutMagnifyBlocks, layoutPlainWrap, layoutRadial, layoutTree } from './layouts'
 import type { DocumentModel } from './model'
+import { layoutLadderPixels, layoutReaderPixels } from './layouts'
 
-export type BeatId = 'plain' | 'cascade' | 'tree' | 'list' | 'magnify' | 'radial'
+export type BeatId = 'reader' | 'ladder'
 
 export type Metrics = {
   charW: number
@@ -39,10 +39,6 @@ export const FOCUS_STYLES: Record<FocusStyleId, FocusStyle> = {
 }
 
 export const BEATS: Record<BeatId, Beat> = {
-  plain: { id: 'plain', name: 'Plain', layout: ({ model, metrics }) => layoutPlainWrap(model, metrics) },
-  cascade: { id: 'cascade', name: 'Buildup / Cascade', layout: ({ model, metrics }) => layoutCascade(model, metrics) },
-  tree: { id: 'tree', name: 'Explosion / Tree', layout: ({ model, metrics }) => layoutTree(model, metrics) },
-  list: { id: 'list', name: 'List-Aware Grid', layout: ({ model, metrics }) => layoutListAware(model, metrics) },
-  magnify: { id: 'magnify', name: 'Magnify', layout: ({ model, metrics }) => layoutMagnifyBlocks(model, metrics) },
-  radial: { id: 'radial', name: 'Radial Burst', layout: ({ model, metrics }) => layoutRadial(model, metrics) },
+  reader: { id: 'reader', name: 'Reader', layout: ({ model, metrics }) => layoutReaderPixels(model, metrics) },
+  ladder: { id: 'ladder', name: 'Ladder', layout: ({ model, metrics }) => layoutLadderPixels(model, metrics) },
 }

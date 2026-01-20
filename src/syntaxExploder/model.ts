@@ -25,6 +25,7 @@ export type Word = {
   focusDy: number
   targetScale: number
   animScale: number
+  pixelWidth: number
 }
 
 const STOPWORDS = new Set([
@@ -194,6 +195,7 @@ export function createWords(text: string): DocumentModel {
       focusDy: 0,
       targetScale: 1,
       animScale: 1,
+      pixelWidth: 0,
     })
 
     metaById.set(id, { isStop, isPunct })
@@ -257,6 +259,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
       focusDy: 0,
       targetScale: 1,
       animScale: 1,
+      pixelWidth: 0,
     })
 
     metaById.set(id, { isStop, isPunct })
