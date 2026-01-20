@@ -1,7 +1,8 @@
 import { signal, computed, effect, batch } from '@preact/signals-core'
-import { createWords, splitParagraphs, DEFAULT_TEXT } from './model'
+import { createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
+import { markdownToParagraphs, stripJinaPreamble } from './markdown'
 
 // SVG icons for layout buttons
 const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
@@ -38,6 +39,7 @@ const FOCUS_LABELS: Record<FocusStyleId, string> = {
 }
 
 const STORAGE_KEY = 'reflow-text'
+const STORAGE_MARKDOWN_KEY = 'reflow-markdown'
 const MOBILE_BOTTOM_RESERVE = 60
 const isMobile = () => window.innerWidth <= 600
 
@@ -49,10 +51,14 @@ export function start(root: HTMLElement) {
   // ═══════════════════════════════════════════════════════════
 
   const savedText = localStorage.getItem(STORAGE_KEY)
+  const savedMarkdown = localStorage.getItem(STORAGE_MARKDOWN_KEY)
   const text$ = signal(savedText || DEFAULT_TEXT)
   const currentPara$ = signal(0)
   const inputMode$ = signal(false)
   const hudCollapsed$ = signal(isMobile())
+  const initialMarkdown = savedMarkdown === '1' || looksLikeMarkdown(savedText || '')
+  if (initialMarkdown) localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
+  const markdownMode$ = signal(initialMarkdown)
 
   // Engine state (from engine callbacks)
   const beat$ = signal<BeatId>('plain')
@@ -62,9 +68,13 @@ export function start(root: HTMLElement) {
   const sentenceOnlyMode$ = signal(false)
 
   // Derived
-  const paragraphs$ = computed(() => splitParagraphs(text$.value))
+  const paragraphs$ = computed(() => markdownMode$.value
+    ? markdownToParagraphs(text$.value)
+    : splitParagraphs(text$.value))
   const currentParaText$ = computed(() => paragraphs$.value[currentPara$.value] || '')
-  const words$ = computed(() => createWords(currentParaText$.value))
+  const words$ = computed(() => markdownMode$.value
+    ? createWordsMarkdown(currentParaText$.value)
+    : createWords(currentParaText$.value))
 
   // ═══════════════════════════════════════════════════════════
   // DOM Setup
@@ -103,6 +113,11 @@ export function start(root: HTMLElement) {
   const inputPanel = document.createElement('div')
   inputPanel.id = 'input-panel'
   inputPanel.innerHTML = `
+    <div class="url-row">
+      <input id="url-input" type="url" placeholder="paste a url..." autocomplete="off" />
+      <button id="url-load" type="button">Load</button>
+    </div>
+    <div class="url-status" id="url-status"></div>
     <textarea id="text-input" placeholder="paste or type text..."></textarea>
     <div class="input-hint">Esc to render · Cmd+Enter to render</div>
   `
@@ -119,6 +134,9 @@ export function start(root: HTMLElement) {
   const sizeScrub = hud.querySelector('#size-scrub') as HTMLSpanElement
   const widthScrub = hud.querySelector('#width-scrub') as HTMLSpanElement
   const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
+  const urlInput = inputPanel.querySelector('#url-input') as HTMLInputElement
+  const urlLoad = inputPanel.querySelector('#url-load') as HTMLButtonElement
+  const urlStatus = inputPanel.querySelector('#url-status') as HTMLDivElement
 
   // ═══════════════════════════════════════════════════════════
   // Engine
@@ -137,8 +155,14 @@ export function start(root: HTMLElement) {
   }
 
   function initEngine() {
+    engine.destroy?.()
     engine = createEngine({ canvas, words: words$.value })
     engine.onStateChange = syncEngineState
+
+    if ((window as any).__reflowDebug) {
+      const sample = words$.value.words.slice(0, 6).map(w => w.text).join(' ')
+      console.debug('[reflow] initEngine', 'paras', paragraphs$.value.length, 'idx', currentPara$.value, 'words', words$.value.words.length, 'sample', sample)
+    }
 
     if (isMobile()) {
       engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
@@ -287,6 +311,16 @@ export function start(root: HTMLElement) {
     inputPanel.classList.toggle('open', inputMode$.value)
   })
 
+  // Debug paragraph changes
+  effect(() => {
+    const paras = paragraphs$.value
+    const idx = currentPara$.value
+    if ((window as any).__reflowDebug) {
+      const preview = paras[idx]?.slice(0, 140).replace(/\s+/g, ' ')
+      console.debug('[reflow] paras', paras.length, 'idx', idx, 'preview', preview)
+    }
+  })
+
   // Scrubber displays
   effect(() => {
     void currentPara$.value // rerun when para changes
@@ -327,20 +361,82 @@ export function start(root: HTMLElement) {
   function openInput() {
     inputMode$.value = true
     textInput.value = ''
+    urlStatus.textContent = ''
+    urlStatus.dataset.state = ''
     requestAnimationFrame(() => textInput.focus())
   }
 
   function closeInput(submit: boolean) {
     inputMode$.value = false
+    urlStatus.textContent = ''
+    urlStatus.dataset.state = ''
     if (submit && textInput.value.trim()) {
       const newText = textInput.value.trim()
       localStorage.setItem(STORAGE_KEY, newText)
+      localStorage.setItem(STORAGE_MARKDOWN_KEY, '0')
       batch(() => {
         text$.value = newText
         currentPara$.value = 0
+        markdownMode$.value = false
       })
     }
   }
+
+  function normalizeUrl(raw: string): string | null {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    try {
+      const url = new URL(withScheme)
+      return `${url.origin}${url.pathname}`
+    } catch {
+      return null
+    }
+  }
+
+  function looksLikeMarkdown(text: string): boolean {
+    if (!text) return false
+    return /\[\[(strong|em|link):?/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
+  }
+
+  async function loadFromUrl() {
+    const normalized = normalizeUrl(urlInput.value)
+    if (!normalized) {
+      urlStatus.textContent = 'Invalid URL.'
+      urlStatus.dataset.state = 'error'
+      return
+    }
+
+    urlStatus.textContent = 'Loading...'
+    urlStatus.dataset.state = 'loading'
+    urlLoad.disabled = true
+
+    try {
+      const response = await fetch(`https://r.jina.ai/${normalized}`)
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
+      }
+      const raw = stripJinaPreamble((await response.text()).trim())
+      if (!raw) throw new Error('No content returned.')
+      localStorage.setItem(STORAGE_KEY, raw)
+      localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
+      batch(() => {
+        text$.value = raw
+        currentPara$.value = 0
+        markdownMode$.value = true
+      })
+      urlStatus.textContent = 'Loaded.'
+      urlStatus.dataset.state = 'ok'
+      closeInput(false)
+    } catch (err) {
+      urlStatus.textContent = err instanceof Error ? err.message : 'Failed to load URL.'
+      urlStatus.dataset.state = 'error'
+    } finally {
+      urlLoad.disabled = false
+    }
+  }
+
 
   // ═══════════════════════════════════════════════════════════
   // Event Handlers
@@ -365,6 +461,20 @@ export function start(root: HTMLElement) {
       e.preventDefault()
       closeInput(true)
     }
+  })
+
+  urlInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void loadFromUrl()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      closeInput(false)
+    }
+  })
+
+  urlLoad.addEventListener('click', () => {
+    void loadFromUrl()
   })
 
   window.addEventListener('keydown', e => {

@@ -6,7 +6,7 @@ export type RenderState = {
   model: DocumentModel
   metrics: Metrics
   fontFamily: string
-  fontCache: Map<number, string>
+  fontCache: Map<string, string>
   sentenceCenterCache: Map<number, { centerCol: number; centerRow: number }>
   scaleEps: number
   getSentenceWords: (sentenceIndex: number) => Word[]
@@ -23,12 +23,15 @@ type WordPos = { x: number; y: number; s: number }
 export function createRenderer(state: RenderState) {
   const { ctx, metrics } = state
 
-  function fontForScale(scale: number): string {
+  function fontForScale(scale: number, fontStyle: 'normal' | 'italic', fontWeight: 'normal' | 'bold'): string {
     const px = Math.max(1, Math.round(state.fontSize * scale))
-    const cached = state.fontCache.get(px)
+    const key = `${fontStyle}|${fontWeight}|${px}`
+    const cached = state.fontCache.get(key)
     if (cached) return cached
-    const next = `${px}px ${state.fontFamily}`
-    state.fontCache.set(px, next)
+    const stylePart = fontStyle === 'normal' ? '' : fontStyle
+    const weightPart = fontWeight === 'normal' ? '' : fontWeight
+    const next = `${stylePart} ${weightPart} ${px}px ${state.fontFamily}`.replace(/\s+/g, ' ').trim()
+    state.fontCache.set(key, next)
     return next
   }
 
@@ -57,7 +60,7 @@ export function createRenderer(state: RenderState) {
   }
 
   function computeWordPosition(w: Word): WordPos {
-    const s = w.animScale
+    const s = w.animScale * w.baseScale
 
     // Base position (unscaled)
     const baseX = state.animPadX + w.animCol * metrics.charW
@@ -78,11 +81,18 @@ export function createRenderer(state: RenderState) {
   }
 
   function drawWordText(w: Word, pos: WordPos) {
-    if (pos.s > state.scaleEps) {
-      ctx.font = fontForScale(pos.s)
+    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
+      ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
     }
+    const prevFill = ctx.fillStyle
+    if (w.linkUrl) ctx.fillStyle = '#1a5fb4'
     ctx.fillText(w.displayText, pos.x, pos.y)
-    if (pos.s > state.scaleEps) {
+    if (w.linkUrl) {
+      const width = ctx.measureText(w.displayText).width
+      ctx.fillRect(pos.x, pos.y + metrics.lineH * pos.s - 2, width, 1)
+      ctx.fillStyle = prevFill
+    }
+    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
       ctx.font = state.fontString
     }
   }
@@ -117,7 +127,9 @@ export function createRenderer(state: RenderState) {
     }
 
     // Set font only if scaled (otherwise use pre-set font from frame)
-    if (pos.s > state.scaleEps) ctx.font = fontForScale(pos.s)
+    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
+      ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
+    }
 
     // Set alpha based on focus style
     if (isDimmed) {
@@ -133,7 +145,7 @@ export function createRenderer(state: RenderState) {
       ctx.globalAlpha = 1
     }
     // Reset font if scaled
-    if (pos.s > state.scaleEps) {
+    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
       ctx.font = state.fontString
     }
   }
@@ -143,7 +155,7 @@ export function createRenderer(state: RenderState) {
     const words = state.model.words
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
-      const s = w.animScale
+      const s = w.animScale * w.baseScale
 
       // Base position (unscaled)
       const baseX = state.animPadX + w.animCol * metrics.charW

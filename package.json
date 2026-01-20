@@ -15,6 +15,7 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
-    "@preact/signals-core": "^1.12.1"
+    "@preact/signals-core": "^1.12.1",
+    "marked": "^17.0.1"
   }
 }

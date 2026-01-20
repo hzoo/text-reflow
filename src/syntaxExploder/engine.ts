@@ -28,7 +28,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   // Cached font string to avoid allocation in hot loop
   let fontString = ''
-  const fontCache = new Map<number, string>()
+  const fontCache = new Map<string, string>()
 
   // Cached sentence centers for magnify mode
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
@@ -38,6 +38,9 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   function notifyStateChange() {
     onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount, sentenceOnlyMode)
+    if ((window as any).__reflowDebug) {
+      console.debug('[reflow] sentence', hoveredSentence, 'count', model.sentenceCount)
+    }
   }
 
   function requestFrame() {
@@ -85,7 +88,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     fontString = `${fontSize}px ${fontFamily}`
     ctx.font = fontString
     fontCache.clear()
-    fontCache.set(fontSize, fontString)
+    fontCache.set(`normal|normal|${fontSize}`, fontString)
 
     const m = ctx.measureText('M')
     metrics.charW = m.width || fontSize * 0.6
@@ -322,32 +325,28 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
-  canvas.addEventListener('mousemove', (e) => {
-    const x = e.offsetX
-    const y = e.offsetY
-    const idx = wordIndexUnder(x, y)
-
-    const prev = hoveredSentence
-
-    if (idx == null) {
-      hoveredSentence = null
+  const onMouseMove = () => {
+    if (document.body.style.cursor !== 'default') {
       document.body.style.cursor = 'default'
-    } else {
-      hoveredSentence = model.words[idx].sentenceIndex
-      document.body.style.cursor = 'pointer'
     }
+  }
 
-    if (hoveredSentence !== prev) {
-      notifyStateChange()
-      invalidate()
-    }
-  })
+  const onClick = (e: MouseEvent) => {
+    const idx = wordIndexUnder(e.offsetX, e.offsetY)
+    if (idx == null) return
+    const w = model.words[idx]
+    if (w.linkUrl) window.open(w.linkUrl, '_blank', 'noopener')
+  }
 
-  window.addEventListener('resize', () => {
+  const onResize = () => {
     applyDPR()
     measureFont()
     layoutCurrentBeat()
-  })
+  }
+
+  canvas.addEventListener('mousemove', onMouseMove)
+  canvas.addEventListener('click', onClick)
+  window.addEventListener('resize', onResize)
 
   let last = performance.now()
   function frame(now: number) {
@@ -418,6 +417,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     for (const w of model.words) {
       w.animCol = w.targetCol
       w.animRow = w.targetRow
+      w.animScale = w.targetScale
     }
 
     running = true
@@ -518,6 +518,16 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     layoutCurrentBeat()
   }
 
+  function destroy() {
+    running = false
+    if (rafId) cancelAnimationFrame(rafId)
+    rafId = 0
+    canvas.removeEventListener('mousemove', onMouseMove)
+    canvas.removeEventListener('click', onClick)
+    window.removeEventListener('resize', onResize)
+    onStateChange = null
+  }
+
   return {
     start,
     setBeat,
@@ -533,6 +543,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     setBottomReserve,
     autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,
+    destroy,
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
   }
 }

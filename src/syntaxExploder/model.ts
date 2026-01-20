@@ -6,6 +6,10 @@ export type Word = {
   displayText: string
   spaceAfter: boolean
   cols: number
+  baseScale: number
+  fontStyle: 'normal' | 'italic'
+  fontWeight: 'normal' | 'bold'
+  linkUrl?: string
 
   // layout targets
   targetCol: number
@@ -164,6 +168,7 @@ export function createWords(text: string): DocumentModel {
     const isPunct = PUNCT_ONLY.test(raw)
     const isStop = !isPunct && STOPWORDS.has(lower)
 
+    const linkUrl = extractUrl(raw)
     words.push({
       id,
       tokenIndex,
@@ -172,6 +177,10 @@ export function createWords(text: string): DocumentModel {
       displayText,
       spaceAfter,
       cols: displayText.length,
+      baseScale: 1,
+      fontStyle: 'normal',
+      fontWeight: 'normal',
+      linkUrl,
       targetCol: 0,
       targetRow: 0,
       animCol: 0,
@@ -192,4 +201,162 @@ export function createWords(text: string): DocumentModel {
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
 
   return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+}
+
+function extractUrl(raw: string): string | undefined {
+  const match = raw.match(/https?:\/\/\S+/i)
+  if (!match) return undefined
+  let url = match[0]
+  url = url.replace(/^[([<{]+/, '')
+  url = url.replace(/[)\]}>.,;:!?]+$/, '')
+  return url
+}
+
+function extractLinkMarkers(text: string): { text: string; urls: string[] } {
+  const urls: string[] = []
+  const cleaned = text.replace(/\[\[link:([^\]]+)\]\]([\s\S]*?)\[\[\/link\]\]/g, (_m, url, label) => {
+    urls.push(url)
+    return label
+  })
+  return { text: cleaned, urls }
+}
+
+type BlockStyle = 'title' | 'heading' | 'bullet' | 'body'
+
+export function createWordsMarkdown(text: string): DocumentModel {
+  const words: Word[] = []
+  const metaById = new Map<string, WordMeta>()
+  const wordsBySentence: Word[][] = []
+
+  let tokenIndex = 0
+  let sentenceIndex = 0
+
+  function pushWord(raw: string, spaceAfter: boolean, baseScale: number, inline: InlineStyle) {
+    const displayText = raw + (spaceAfter ? ' ' : '')
+    const id = `w${tokenIndex}`
+    const lower = raw.toLowerCase()
+    const isPunct = PUNCT_ONLY.test(raw)
+    const isStop = !isPunct && STOPWORDS.has(lower)
+
+    const linkUrl = inline.linkUrl || extractUrl(raw)
+    words.push({
+      id,
+      tokenIndex,
+      sentenceIndex,
+      text: raw,
+      displayText,
+      spaceAfter,
+      cols: Math.max(1, Math.round(displayText.length * baseScale)),
+      baseScale,
+      fontStyle: inline.fontStyle,
+      fontWeight: inline.fontWeight,
+      linkUrl,
+      targetCol: 0,
+      targetRow: 0,
+      animCol: 0,
+      animRow: 0,
+      focusDy: 0,
+      targetScale: 1,
+      animScale: 1,
+    })
+
+    metaById.set(id, { isStop, isPunct })
+    if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
+    wordsBySentence[sentenceIndex].push(words[words.length - 1])
+    if (SENTENCE_END.test(raw)) sentenceIndex++
+    tokenIndex++
+  }
+
+  function parseLine(line: string): { style: BlockStyle; content: string } {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('# ')) return { style: 'title', content: trimmed.replace(/^#\s+/, '') }
+    if (trimmed.startsWith('## ')) return { style: 'heading', content: trimmed.replace(/^##\s+/, '') }
+    if (/^[-*+]\s+/.test(trimmed)) return { style: 'bullet', content: trimmed.replace(/^[-*+]\s+/, '') }
+    if (/^\d+\.\s+/.test(trimmed)) return { style: 'bullet', content: trimmed.replace(/^\d+\.\s+/, '') }
+    return { style: 'body', content: trimmed }
+  }
+
+  function baseScaleFor(style: BlockStyle): number {
+    if (style === 'title') return 1.5
+    if (style === 'heading') return 1.2
+    return 1
+  }
+
+  const cleaned = extractLinkMarkers(text)
+  const lines = cleaned.text.split(/\n/)
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const { style, content } = parseLine(trimmed)
+    const scale = baseScaleFor(style)
+    const lineText = style === 'bullet' ? `- ${content}` : content
+    const segments = parseInlineMarkers(lineText)
+    for (const segment of segments) {
+      const re = /\S+(\s+|$)/g
+      for (const match of segment.text.matchAll(re)) {
+        const token = match[0]
+        const raw = token.replace(/\s+$/g, '')
+        const spaceAfter = /\s+$/.test(token)
+        pushWord(raw, spaceAfter, scale, segment.style)
+      }
+    }
+    sentenceIndex++
+  }
+
+  const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+}
+
+type InlineStyle = {
+  fontStyle: 'normal' | 'italic'
+  fontWeight: 'normal' | 'bold'
+  linkUrl?: string
+}
+
+type InlineSegment = {
+  text: string
+  style: InlineStyle
+}
+
+function parseInlineMarkers(text: string): InlineSegment[] {
+  const segments: InlineSegment[] = []
+  const marker = /\[\[(\/)?(strong|em|link)(?::([^\]]+))?\]\]/g
+  const weightStack: Array<'normal' | 'bold'> = ['normal']
+  const styleStack: Array<'normal' | 'italic'> = ['normal']
+  const linkStack: Array<string | undefined> = [undefined]
+  let lastIndex = 0
+
+  function pushSegment(value: string) {
+    if (!value) return
+    segments.push({
+      text: value,
+      style: {
+        fontStyle: styleStack[styleStack.length - 1],
+        fontWeight: weightStack[weightStack.length - 1],
+        linkUrl: linkStack[linkStack.length - 1],
+      },
+    })
+  }
+
+  let match: RegExpExecArray | null
+  while ((match = marker.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      pushSegment(text.slice(lastIndex, match.index))
+    }
+    const isClose = Boolean(match[1])
+    const kind = match[2]
+    const value = match[3]
+    if (!isClose) {
+      if (kind === 'strong') weightStack.push('bold')
+      else if (kind === 'em') styleStack.push('italic')
+      else if (kind === 'link') linkStack.push(value)
+    } else {
+      if (kind === 'strong' && weightStack.length > 1) weightStack.pop()
+      else if (kind === 'em' && styleStack.length > 1) styleStack.pop()
+      else if (kind === 'link' && linkStack.length > 1) linkStack.pop()
+    }
+    lastIndex = marker.lastIndex
+  }
+  if (lastIndex < text.length) pushSegment(text.slice(lastIndex))
+  return segments
 }
