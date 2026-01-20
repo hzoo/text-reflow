@@ -25,7 +25,7 @@ export type Beat = {
   layout: (ctx: LayoutContext) => LayoutMap
 }
 
-export type FocusStyleId = 'dither' | 'gray' | 'redact' | 'none'
+export type FocusStyleId = 'gray' | 'redact' | 'none'
 
 export type FocusStyle = {
   id: FocusStyleId
@@ -33,7 +33,6 @@ export type FocusStyle = {
 }
 
 export const FOCUS_STYLES: Record<FocusStyleId, FocusStyle> = {
-  dither: { id: 'dither', name: 'Dither' },
   gray: { id: 'gray', name: 'Gray' },
   redact: { id: 'redact', name: 'Redact' },
   none: { id: 'none', name: 'None' },

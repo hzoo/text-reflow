@@ -14,7 +14,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
 
   let running = false
   let beat: BeatId = 'plain'
-  let focusStyle: FocusStyleId = 'dither'
+  let focusStyle: FocusStyleId = 'gray'
 
   let hoveredSentence: number | null = null
 
@@ -64,6 +64,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   const LN_0_001 = Math.log(0.001)
   const LN_0_01 = Math.log(0.01)
   let animPadY = 24
+  let animPadX = 24
 
   function applyDPR() {
     const dpr = Math.max(1, window.devicePixelRatio || 1)
@@ -135,6 +136,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     scaleEps: SCALE_EPS,
     getSentenceWords,
     get animPadY() { return animPadY },
+    get animPadX() { return animPadX },
     get fontString() { return fontString },
     get fontSize() { return fontSize },
     get hoveredSentence() { return hoveredSentence },
@@ -274,6 +276,10 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     const dPad = metrics.padY - animPadY
     if (Math.abs(dPad) > EPS) active = true
     animPadY += dPad * kPad
+
+    const dPadX = metrics.padX - animPadX
+    if (Math.abs(dPadX) > EPS) active = true
+    animPadX += dPadX * kPad
     return active
   }
 
@@ -408,6 +414,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
     // init anim state to targets
     layoutCurrentBeat()
     animPadY = metrics.padY
+    animPadX = metrics.padX
     for (const w of model.words) {
       w.animCol = w.targetCol
       w.animRow = w.targetRow
@@ -433,7 +440,7 @@ export function createEngine({ canvas, words: model }: EngineOpts) {
   }
 
   function cycleFocusStyle() {
-    const ids: FocusStyleId[] = ['dither', 'gray', 'redact', 'none']
+    const ids: FocusStyleId[] = ['gray', 'redact', 'none']
     const idx = ids.indexOf(focusStyle)
     focusStyle = ids[(idx + 1) % ids.length]
     notifyStateChange()

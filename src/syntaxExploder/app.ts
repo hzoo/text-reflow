@@ -32,7 +32,6 @@ const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
 }
 
 const FOCUS_LABELS: Record<FocusStyleId, string> = {
-  dither: 'Soft',
   gray: 'Dim',
   redact: 'Hide',
   none: 'Off',
@@ -57,7 +56,7 @@ export function start(root: HTMLElement) {
 
   // Engine state (from engine callbacks)
   const beat$ = signal<BeatId>('plain')
-  const focusStyle$ = signal<FocusStyleId>('dither')
+  const focusStyle$ = signal<FocusStyleId>('gray')
   const sentence$ = signal<number | null>(0)
   const sentenceCount$ = signal(1)
   const sentenceOnlyMode$ = signal(false)

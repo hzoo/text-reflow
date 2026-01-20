@@ -11,6 +11,7 @@ export type RenderState = {
   scaleEps: number
   getSentenceWords: (sentenceIndex: number) => Word[]
   readonly animPadY: number
+  readonly animPadX: number
   readonly fontString: string
   readonly fontSize: number
   readonly hoveredSentence: number | null
@@ -59,7 +60,7 @@ export function createRenderer(state: RenderState) {
     const s = w.animScale
 
     // Base position (unscaled)
-    const baseX = metrics.padX + w.animCol * metrics.charW
+    const baseX = state.animPadX + w.animCol * metrics.charW
     const baseY = state.animPadY + w.animRow * metrics.lineH + w.focusDy
 
     let x = baseX
@@ -68,7 +69,7 @@ export function createRenderer(state: RenderState) {
     // For magnified words, zoom from the sentence center
     if (s > state.scaleEps) {
       const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-      const centerX = metrics.padX + centerCol * metrics.charW
+      const centerX = state.animPadX + centerCol * metrics.charW
       const centerY = state.animPadY + centerRow * metrics.lineH + w.focusDy
       x = centerX + (baseX - centerX) * s
       y = centerY + (baseY - centerY) * s
@@ -122,9 +123,6 @@ export function createRenderer(state: RenderState) {
     if (isDimmed) {
       if (state.focusStyle === 'gray') {
         ctx.globalAlpha = 0.2
-      } else if (state.focusStyle === 'dither') {
-        const on = ((pos.x / (metrics.charW * pos.s) | 0) + (pos.y / (metrics.lineH * pos.s) | 0)) & 1
-        ctx.globalAlpha = on ? 0.16 : 0.32
       }
     }
 
@@ -148,7 +146,7 @@ export function createRenderer(state: RenderState) {
       const s = w.animScale
 
       // Base position (unscaled)
-      const baseX = metrics.padX + w.animCol * metrics.charW
+      const baseX = state.animPadX + w.animCol * metrics.charW
       const baseY = state.animPadY + w.animRow * metrics.lineH + w.focusDy
 
       let x = baseX
@@ -159,7 +157,7 @@ export function createRenderer(state: RenderState) {
       // For magnified words, compute actual position from center zoom
       if (s > state.scaleEps) {
         const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-        const centerX = metrics.padX + centerCol * metrics.charW
+        const centerX = state.animPadX + centerCol * metrics.charW
         const centerY = state.animPadY + centerRow * metrics.lineH + w.focusDy
         x = centerX + (baseX - centerX) * s
         y = centerY + (baseY - centerY) * s
