@@ -17,6 +17,17 @@ type EngineOpts = {
   pixelLayout?: boolean
 }
 
+type EngineStateUpdate = {
+  model?: DocumentModel
+  scope?: LayoutScope
+  fontFamily?: string
+  maxContentWidth?: number
+  fontSize?: number
+  beat?: BeatId
+  pixelLayout?: boolean
+  bottomReserve?: number
+}
+
 type LayoutScope =
   | { mode: 'full'; paragraphBreakRows: number }
   | { mode: 'paragraph'; paragraphIndex: number; sentenceOffset: number; sentenceCount: number }
@@ -432,18 +443,22 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (invalidateLayout) invalidate()
   }
 
+  function snapToTargets() {
+    animPadY = metrics.padY
+    animPadX = metrics.padX
+    animPanY = panY
+    for (const w of visibleWords) {
+      w.animX = w.targetX
+      w.animY = w.targetY
+      w.animScale = w.targetScale
+    }
+  }
+
   function setScope(nextScope: LayoutScope, opts: { snap?: boolean } = {}) {
     applyScope(nextScope)
     layoutCurrentBeat()
     if (opts.snap) {
-      animPadY = metrics.padY
-      animPadX = metrics.padX
-      animPanY = panY
-      for (const w of visibleWords) {
-        w.animX = w.targetX
-        w.animY = w.targetY
-        w.animScale = w.targetScale
-      }
+      snapToTargets()
     }
     notifyStateChange()
     invalidate()
@@ -455,14 +470,73 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     applyScope(scope)
     layoutCurrentBeat()
     if (opts.snap) {
-      animPadY = metrics.padY
-      animPadX = metrics.padX
-      animPanY = panY
-      for (const w of visibleWords) {
-        w.animX = w.targetX
-        w.animY = w.targetY
-        w.animScale = w.targetScale
+      snapToTargets()
+    }
+    notifyStateChange()
+    invalidate()
+  }
+
+  function commit(update: EngineStateUpdate, opts: { snap?: boolean } = {}) {
+    let needsLayout = false
+    let modelChanged = false
+
+    if (update.model && update.model !== model) {
+      model = update.model
+      renderState.model = model
+      modelChanged = true
+      needsLayout = true
+    }
+
+    if (update.fontFamily !== undefined && update.fontFamily !== fontFamily) {
+      fontFamily = update.fontFamily || defaultFontFamily
+      renderState.fontFamily = fontFamily
+      needsLayout = true
+    }
+
+    if (update.maxContentWidth !== undefined) {
+      const next = Math.max(300, Math.min(1200, update.maxContentWidth))
+      if (next !== maxContentWidth) {
+        maxContentWidth = next
+        needsLayout = true
       }
+    }
+
+    if (update.fontSize !== undefined) {
+      const next = Math.max(12, Math.min(40, update.fontSize))
+      if (next !== fontSize) {
+        fontSize = next
+        needsLayout = true
+      }
+    }
+
+    if (update.beat && update.beat !== beat) {
+      beat = update.beat
+      needsLayout = true
+    }
+
+    if (update.pixelLayout !== undefined && update.pixelLayout !== pixelLayout) {
+      pixelLayout = update.pixelLayout
+      needsLayout = true
+    }
+
+    if (update.bottomReserve !== undefined && update.bottomReserve !== bottomReserve) {
+      bottomReserve = update.bottomReserve
+      needsLayout = true
+    }
+
+    if (update.scope) {
+      applyScope(update.scope)
+      needsLayout = true
+    } else if (modelChanged) {
+      applyScope(scope)
+      needsLayout = true
+    }
+
+    if (!needsLayout) return
+
+    layoutCurrentBeat()
+    if (opts.snap) {
+      snapToTargets()
     }
     notifyStateChange()
     invalidate()
@@ -859,6 +933,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     setFullFocusPush: (next: boolean) => { fullFocusPush = next },
     setScope,
     setModel,
+    commit,
     destroy,
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
   }

@@ -224,21 +224,37 @@ export function start(root: HTMLElement) {
   const applyEngineScope = () => {
     const counts = sentenceCounts$.value
     const paragraphIndex = currentPara$.value
+    const view = viewMode$.value
+    const isMarkdown = markdownMode$.value
+    const nextDoc = document$.value
     const global = untracked(() => globalSentence$.value)
-    if (viewMode$.value === 'full') {
-      const breakRows = markdownMode$.value ? 2 : 1
-      engine.setScope({ mode: 'full', paragraphBreakRows: breakRows }, { snap: true })
-      if (global != null) engine.setSentence(global, { snap: true })
+    const fontFamily = isMarkdown ? READER_FONT : undefined
+    if (view === 'full') {
+      const breakRows = isMarkdown ? 2 : 1
+      engine.commit({
+        model: nextDoc,
+        scope: { mode: 'full', paragraphBreakRows: breakRows },
+        fontFamily,
+      }, { snap: true })
+      if (global != null) {
+        const currentLocal = untracked(() => sentence$.value)
+        if (currentLocal !== global) engine.setSentence(global, { snap: true })
+      }
       if (isMobile()) engine.autoFitFontSize()
       return
     }
 
     const offset = getSentenceOffset(counts, paragraphIndex)
     const sentenceCount = counts[paragraphIndex] ?? 0
-    engine.setScope({ mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount }, { snap: true })
+    engine.commit({
+      model: nextDoc,
+      scope: { mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount },
+      fontFamily,
+    }, { snap: true })
     if (global != null && sentenceCount > 0) {
       const local = Math.max(0, Math.min(sentenceCount - 1, global - offset))
-      engine.setSentence(local, { snap: true })
+      const currentLocal = untracked(() => sentence$.value)
+      if (currentLocal !== local) engine.setSentence(local, { snap: true })
     }
     if (isMobile()) engine.autoFitFontSize()
   }
@@ -254,14 +270,6 @@ export function start(root: HTMLElement) {
     engine.setBeat('reader')
     engine.start()
   }
-
-  effect(() => {
-    engine.setModel(document$.value)
-  })
-
-  effect(() => {
-    engine.setFontFamily(markdownMode$.value ? READER_FONT : undefined)
-  })
 
   effect(() => {
     engine.setFullFocusPush(fullPush$.value)
