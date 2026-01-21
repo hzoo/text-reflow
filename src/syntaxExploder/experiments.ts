@@ -1,4 +1,4 @@
-import type { DocumentModel } from './model'
+import type { DocumentModel, Word } from './model'
 import { layoutLadderPixels, layoutReaderPixels } from './layouts'
 
 export type BeatId = 'reader' | 'ladder'
@@ -17,6 +17,8 @@ export type LayoutMap = Map<string, LayoutTarget>
 export type LayoutContext = {
   model: DocumentModel
   metrics: Metrics
+  words?: Word[]
+  paragraphBreakRows?: number
 }
 
 export type Beat = {
@@ -39,6 +41,6 @@ export const FOCUS_STYLES: Record<FocusStyleId, FocusStyle> = {
 }
 
 export const BEATS: Record<BeatId, Beat> = {
-  reader: { id: 'reader', name: 'Reader', layout: ({ model, metrics }) => layoutReaderPixels(model, metrics) },
-  ladder: { id: 'ladder', name: 'Ladder', layout: ({ model, metrics }) => layoutLadderPixels(model, metrics) },
+  reader: { id: 'reader', name: 'Reader', layout: (ctx) => layoutReaderPixels(ctx) },
+  ladder: { id: 'ladder', name: 'Ladder', layout: (ctx) => layoutLadderPixels(ctx) },
 }

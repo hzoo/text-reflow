@@ -17,7 +17,11 @@ type EngineOpts = {
   pixelLayout?: boolean
 }
 
-export function createEngine({ canvas, words: model, fontFamily: fontOverride, maxContentWidth: maxWidthOverride, pixelLayout: pixelLayoutOverride }: EngineOpts) {
+type LayoutScope =
+  | { mode: 'full'; paragraphBreakRows: number }
+  | { mode: 'paragraph'; paragraphIndex: number; sentenceOffset: number; sentenceCount: number }
+
+export function createEngine({ canvas, words: initialModel, fontFamily: fontOverride, maxContentWidth: maxWidthOverride, pixelLayout: pixelLayoutOverride }: EngineOpts) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('2D context not available')
   const ctx = context
@@ -28,6 +32,12 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   let focusStyle: FocusStyleId = 'gray'
 
   let hoveredSentence: number | null = null
+  let model = initialModel
+  let scope: LayoutScope = { mode: 'full', paragraphBreakRows: 0 }
+  let sentenceOffset = 0
+  let sentenceCountInScope = model.sentenceCount
+  let paragraphBreakRows = 0
+  let visibleWords: Word[] = model.words
 
   const lightTheme: CanvasTheme = {
     text: '#111',
@@ -61,7 +71,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
-  const fontFamily = fontOverride || 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  const defaultFontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  let fontFamily = fontOverride || defaultFontFamily
   const SCALE_EPS = 1.01
 
   // Cached font string to avoid allocation in hot loop
@@ -77,9 +88,9 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   let rafId = 0
 
   function notifyStateChange() {
-    onStateChange?.(beat, focusStyle, hoveredSentence, model.sentenceCount, sentenceOnlyMode)
+    onStateChange?.(beat, focusStyle, hoveredSentence, sentenceCountInScope, sentenceOnlyMode)
     if ((window as any).__reflowDebug) {
-      console.debug('[reflow] sentence', hoveredSentence, 'count', model.sentenceCount)
+      console.debug('[reflow] sentence', hoveredSentence, 'count', sentenceCountInScope)
     }
   }
 
@@ -203,7 +214,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     // Account for bottomReserve (HUD on mobile)
     const availableHeight = window.innerHeight - bottomReserve
     let maxRow = 0
-    const words = model.words
+    const words = visibleWords
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       if (w.targetY > maxRow) maxRow = w.targetY
@@ -251,9 +262,37 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     ctx.font = fontString
   }
 
+  function applyScope(nextScope: LayoutScope) {
+    scope = nextScope
+    if (scope.mode === 'full') {
+      sentenceOffset = 0
+      sentenceCountInScope = model.sentenceCount
+      paragraphBreakRows = scope.paragraphBreakRows
+      visibleWords = model.words
+    } else {
+      sentenceOffset = scope.sentenceOffset
+      sentenceCountInScope = scope.sentenceCount
+      paragraphBreakRows = 0
+      visibleWords = model.words.filter((w) => w.paragraphIndex === scope.paragraphIndex)
+    }
+
+    if (sentenceCountInScope <= 0) {
+      hoveredSentence = null
+    } else if (hoveredSentence != null) {
+      hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, hoveredSentence))
+    }
+
+    sentenceCenterCache.clear()
+  }
+
   /** Get words for a specific sentence */
   function getSentenceWords(sentenceIndex: number): Word[] {
     return model.wordsBySentence[sentenceIndex] || []
+  }
+
+  function hoveredSentenceGlobal(): number | null {
+    if (hoveredSentence == null) return null
+    return sentenceOffset + hoveredSentence
   }
 
   function wordRowSpan(w: Word): number {
@@ -261,7 +300,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     return Math.max(1, Math.ceil(w.imageH / metrics.lineH))
   }
 
-  const { drawWord, drawWordPlain, drawWordRedactRect, wordIndexUnder } = createRenderer({
+  const renderState = {
     ctx,
     model,
     metrics,
@@ -272,15 +311,17 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     ensureImage: (url: string) => { ensureImage(url) },
     scaleEps: SCALE_EPS,
     getSentenceWords,
+    getVisibleWords: () => visibleWords,
     get animPadY() { return animPadY },
     get animPadX() { return animPadX },
     get animPanY() { return animPanY },
     get fontString() { return fontString },
     get fontSize() { return fontSize },
-    get hoveredSentence() { return hoveredSentence },
+    get hoveredSentence() { return hoveredSentenceGlobal() },
     get focusStyle() { return focusStyle },
     theme,
-  })
+  }
+  const { drawWord, drawWordPlain, drawWordRedactRect, wordUnder } = createRenderer(renderState)
 
   /** Calculate content bounds for given words */
   function getContentBounds(words: Word[]): { maxRow: number; maxX: number } {
@@ -320,7 +361,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
       measureFont()
       layoutCurrentBeat(false)
 
-      if (contentFits(model.words)) {
+      if (contentFits(visibleWords)) {
         bestSize = testSize
         minSize = testSize + 1
       } else {
@@ -334,7 +375,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     layoutCurrentBeat()
 
     // Check if even minimum doesn't fit - switch to sentence-only mode
-    if (!contentFits(model.words)) {
+    if (!contentFits(visibleWords)) {
       sentenceOnlyMode = true
       fitCurrentSentence()
       notifyStateChange()
@@ -347,9 +388,10 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   /** Fit just the current sentence to screen */
   function fitCurrentSentence() {
-    if (hoveredSentence === null) return
+    const globalSentence = hoveredSentenceGlobal()
+    if (globalSentence === null) return
 
-    const sentenceWords = getSentenceWords(hoveredSentence)
+    const sentenceWords = getSentenceWords(globalSentence)
     if (sentenceWords.length === 0) return
 
     // Binary search for optimal font size for this sentence
@@ -379,13 +421,29 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   function layoutCurrentBeat(invalidateLayout = true) {
     measureFont()
     updateWordCols()
-    const layout = BEATS[beat].layout({ model, metrics })
-    applyTargets(model.words, layout)
+    const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
+    applyTargets(visibleWords, layout)
     sentenceCenterCache.clear()
     // Re-measure after layout to update vertical padding
     measureFont()
     updatePanForSentence()
     if (invalidateLayout) invalidate()
+  }
+
+  function setScope(nextScope: LayoutScope) {
+    applyScope(nextScope)
+    layoutCurrentBeat()
+    notifyStateChange()
+    invalidate()
+  }
+
+  function setModel(nextModel: DocumentModel) {
+    model = nextModel
+    renderState.model = model
+    applyScope(scope)
+    layoutCurrentBeat()
+    notifyStateChange()
+    invalidate()
   }
 
   function applyTargets(words: Word[], targets: LayoutMap) {
@@ -403,7 +461,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const k = -Math.expm1(LN_0_0001 * dt * moveSpeed)
     let active = false
 
-    const words = model.words
+    const words = visibleWords
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       const dCol = w.targetX - w.animX
@@ -432,46 +490,36 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   function updatePanForSentence() {
-    if (hoveredSentence == null) {
+    const globalSentence = hoveredSentenceGlobal()
+    if (globalSentence == null) {
       panY = 0
       return
     }
-    const words = model.words
-    let startIdx = -1
-    let endIdx = -1
-    for (let i = 0; i < words.length; i++) {
-      if (words[i].sentenceIndex !== hoveredSentence) continue
-      if (startIdx === -1) startIdx = i
-      endIdx = i
-    }
-    if (startIdx === -1 || endIdx === -1) return
-
-    const paragraphId = words[startIdx].paragraphIndex
-    let paraStart = startIdx
-    let paraEnd = endIdx
-    for (let i = startIdx; i >= 0; i--) {
-      if (words[i].paragraphIndex !== paragraphId) {
-        paraStart = i + 1
-        break
-      }
-      if (i === 0) paraStart = 0
-    }
-    for (let i = endIdx; i < words.length; i++) {
-      if (words[i].paragraphIndex !== paragraphId) {
-        paraEnd = i - 1
-        break
-      }
-      if (i === words.length - 1) paraEnd = words.length - 1
-    }
+    const sentenceWords = getSentenceWords(globalSentence)
+    if (sentenceWords.length === 0) return
 
     let minRow = Infinity
     let maxRow = -Infinity
-    for (let i = paraStart; i <= paraEnd; i++) {
-      const w = words[i]
-      const span = wordRowSpan(w)
-      minRow = Math.min(minRow, w.targetY)
-      maxRow = Math.max(maxRow, w.targetY + span - 1)
+
+    if (scope.mode === 'full') {
+      for (let i = 0; i < sentenceWords.length; i++) {
+        const w = sentenceWords[i]
+        const span = wordRowSpan(w)
+        minRow = Math.min(minRow, w.targetY)
+        maxRow = Math.max(maxRow, w.targetY + span - 1)
+      }
+    } else {
+      const paragraphId = sentenceWords[0].paragraphIndex
+      const words = visibleWords
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i]
+        if (w.paragraphIndex !== paragraphId) continue
+        const span = wordRowSpan(w)
+        minRow = Math.min(minRow, w.targetY)
+        maxRow = Math.max(maxRow, w.targetY + span - 1)
+      }
     }
+    if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
 
     const top = metrics.padY + minRow * metrics.lineH + panY
     const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
@@ -483,12 +531,13 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   function sentenceYOffset(sentenceIndex: number): number {
-    if (hoveredSentence == null) return 0
+    const hoveredGlobal = hoveredSentenceGlobal()
+    if (hoveredGlobal == null) return 0
     
     const baseGap = 48
     
-    if (sentenceIndex < hoveredSentence) return -baseGap / 2
-    if (sentenceIndex > hoveredSentence) return baseGap / 2
+    if (sentenceIndex < hoveredGlobal) return -baseGap / 2
+    if (sentenceIndex > hoveredGlobal) return baseGap / 2
     return 0
   }
 
@@ -497,10 +546,11 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const isMagnifyBeat = false
     let active = false
 
-    const words = model.words
+    const words = visibleWords
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
-      const isHoveredSent = hoveredSentence !== null && w.sentenceIndex === hoveredSentence
+      const hoveredGlobal = hoveredSentenceGlobal()
+      const isHoveredSent = hoveredGlobal !== null && w.sentenceIndex === hoveredGlobal
       
       // Update target scale (reduced from 1.8 to 1.35)
       if (isMagnifyBeat && isHoveredSent) {
@@ -528,9 +578,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   const onClick = (e: MouseEvent) => {
-    const idx = wordIndexUnder(e.offsetX, e.offsetY)
-    if (idx == null) return
-    const w = model.words[idx]
+    const w = wordUnder(e.offsetX, e.offsetY)
+    if (!w) return
     if (w.linkUrl) window.open(w.linkUrl, '_blank', 'noopener')
   }
 
@@ -565,34 +614,36 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     ctx.fillStyle = theme.text
     ctx.globalAlpha = 1
 
+    const hoveredGlobal = hoveredSentenceGlobal()
+
     // In sentence-only mode, only draw the current sentence
-    if (sentenceOnlyMode && hoveredSentence !== null) {
-      const words = getSentenceWords(hoveredSentence)
+    if (sentenceOnlyMode && hoveredGlobal !== null) {
+      const words = getSentenceWords(hoveredGlobal)
       for (let i = 0; i < words.length; i++) drawWordPlain(words[i])
     } else {
-      const words = model.words
-      if (hoveredSentence !== null && focusStyle !== 'none') {
+      const words = visibleWords
+      if (hoveredGlobal !== null && focusStyle !== 'none') {
         if (focusStyle === 'gray') {
           ctx.globalAlpha = 0.2
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
-            if (w.sentenceIndex !== hoveredSentence) drawWordPlain(w)
+            if (w.sentenceIndex !== hoveredGlobal) drawWordPlain(w)
           }
           ctx.globalAlpha = 1
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
-            if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
+            if (w.sentenceIndex === hoveredGlobal) drawWordPlain(w)
           }
         } else if (focusStyle === 'redact') {
           ctx.fillStyle = theme.redacted
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
-            if (w.sentenceIndex !== hoveredSentence) drawWordRedactRect(w)
+            if (w.sentenceIndex !== hoveredGlobal) drawWordRedactRect(w)
           }
           ctx.fillStyle = theme.text
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
-            if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
+            if (w.sentenceIndex === hoveredGlobal) drawWordPlain(w)
           }
         } else {
           for (let i = 0; i < words.length; i++) drawWord(words[i])
@@ -615,7 +666,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     animPadY = metrics.padY
     animPadX = metrics.padX
     animPanY = panY
-    for (const w of model.words) {
+    for (const w of visibleWords) {
       w.animX = w.targetX
       w.animY = w.targetY
       w.animScale = w.targetScale
@@ -623,7 +674,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
     running = true
     needsRedraw = true
-    if (hoveredSentence === null) {
+    if (hoveredSentence === null && sentenceCountInScope > 0) {
       hoveredSentence = 0 // auto-focus first sentence
     }
     notifyStateChange()
@@ -660,7 +711,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
       invalidate()
       return 'ok'
     }
-    if (hoveredSentence >= model.sentenceCount - 1) {
+    if (hoveredSentence >= sentenceCountInScope - 1) {
       return 'wrap'
     }
     hoveredSentence++
@@ -674,7 +725,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   /** Returns 'wrap' if at start and should go to prev paragraph */
   function prevSentence(): 'ok' | 'wrap' {
     if (hoveredSentence === null) {
-      hoveredSentence = model.sentenceCount - 1
+      hoveredSentence = Math.max(0, sentenceCountInScope - 1)
       if (sentenceOnlyMode) fitCurrentSentence()
       notifyStateChange()
       invalidate()
@@ -692,7 +743,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   function goToLastSentence() {
-    hoveredSentence = model.sentenceCount - 1
+    hoveredSentence = Math.max(0, sentenceCountInScope - 1)
     updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
@@ -703,7 +754,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     if (index === null) {
       hoveredSentence = null
     } else {
-      hoveredSentence = Math.max(0, Math.min(model.sentenceCount - 1, index))
+      hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, index))
     }
     updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
@@ -723,6 +774,13 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   function setFontSize(size: number) {
     fontSize = Math.max(12, Math.min(40, size))
+    measureFont()
+    layoutCurrentBeat()
+  }
+
+  function setFontFamily(next?: string) {
+    fontFamily = next || defaultFontFamily
+    renderState.fontFamily = fontFamily
     measureFont()
     layoutCurrentBeat()
   }
@@ -762,6 +820,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     setMaxWidth,
     getMaxWidth,
     setFontSize,
+    setFontFamily,
     getFontSize,
     setMoveSpeed: (value: number) => { moveSpeed = Math.max(0.2, Math.min(3, value)) },
     setPanSpeed: (value: number) => { panSpeed = Math.max(0.2, Math.min(3, value)) },
@@ -773,6 +832,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,
     setSentence,
+    setScope,
+    setModel,
     destroy,
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
   }

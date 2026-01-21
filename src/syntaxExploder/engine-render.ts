@@ -21,6 +21,7 @@ export type RenderState = {
   ensureImage: (url: string) => void
   scaleEps: number
   getSentenceWords: (sentenceIndex: number) => Word[]
+  getVisibleWords: () => Word[]
   readonly animPadY: number
   readonly animPadX: number
   readonly animPanY: number
@@ -240,16 +241,16 @@ export function createRenderer(state: RenderState) {
     }
   }
 
-  function wordIndexUnder(px: number, py: number): number | null {
+  function wordUnder(px: number, py: number): Word | null {
     // iterate; ok for a single paragraph; optimize later
-    const words = state.model.words
+    const words = state.getVisibleWords()
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       const s = w.animScale * w.baseScale
 
       // Base position (unscaled)
       const baseX = state.animPadX + w.animX
-    const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
+      const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
 
       let x = baseX
       let y = baseY
@@ -267,7 +268,7 @@ export function createRenderer(state: RenderState) {
         height *= s
       }
 
-      if (x <= px && px <= x + width && y <= py && py <= y + height) return i
+      if (x <= px && px <= x + width && y <= py && py <= y + height) return w
     }
     return null
   }
@@ -276,6 +277,6 @@ export function createRenderer(state: RenderState) {
     drawWord,
     drawWordPlain,
     drawWordRedactRect,
-    wordIndexUnder,
+    wordUnder,
   }
 }

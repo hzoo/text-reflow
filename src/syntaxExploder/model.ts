@@ -233,6 +233,48 @@ export function createWords(text: string): DocumentModel {
   return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
 }
 
+export function createDocumentFromParagraphs(paragraphs: string[], useMarkdown: boolean): DocumentModel {
+  const words: Word[] = []
+  const metaById = new Map<string, WordMeta>()
+  const wordsBySentence: Word[][] = []
+
+  const create = useMarkdown ? createWordsMarkdown : createWords
+  let tokenOffset = 0
+  let sentenceOffset = 0
+
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex++) {
+    const paragraph = paragraphs[paragraphIndex]
+    if (!paragraph) continue
+    const doc = create(paragraph)
+
+    for (const word of doc.words) {
+      const globalToken = tokenOffset + word.tokenIndex
+      const globalSentence = sentenceOffset + word.sentenceIndex
+      const id = `w${globalToken}`
+      const meta = doc.metaById.get(word.id)
+
+      const nextWord: Word = {
+        ...word,
+        id,
+        tokenIndex: globalToken,
+        sentenceIndex: globalSentence,
+        paragraphIndex,
+      }
+
+      words.push(nextWord)
+      if (meta) metaById.set(id, meta)
+      if (!wordsBySentence[globalSentence]) wordsBySentence[globalSentence] = []
+      wordsBySentence[globalSentence].push(nextWord)
+    }
+
+    tokenOffset += doc.words.length
+    sentenceOffset += doc.sentenceCount
+  }
+
+  const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+}
+
 function extractUrl(raw: string): string | undefined {
   const match = raw.match(/https?:\/\/\S+/i)
   if (!match) return undefined

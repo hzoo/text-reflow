@@ -1,14 +1,15 @@
-import type { DocumentModel } from './model'
-import type { LayoutMap, Metrics } from './experiments'
+import type { LayoutMap, LayoutContext } from './experiments'
 
-export function layoutReaderPixels(model: DocumentModel, metrics: Metrics): LayoutMap {
+export function layoutReaderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutMap {
   const map: LayoutMap = new Map()
-  const { words } = model
+  const words = overrideWords ?? model.words
   const maxWidth = metrics.maxCols
   let row = 0
   let x = 0
 
-  for (const w of words) {
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
+    const next = words[i + 1]
     const width = Math.max(1, w.pixelWidth)
     if (x > 0 && x + width > maxWidth) {
       row++
@@ -18,8 +19,11 @@ export function layoutReaderPixels(model: DocumentModel, metrics: Metrics): Layo
     map.set(w.id, { col: Math.round(x), row })
     x += width
 
-    if (w.breakAfter) {
-      row += Math.max(1, w.breakAfterRows)
+    const isParagraphEnd = !next || next.paragraphIndex !== w.paragraphIndex
+    const baseBreak = w.breakAfter ? Math.max(1, w.breakAfterRows) : 0
+    const breakRows = isParagraphEnd ? Math.max(baseBreak, paragraphBreakRows) : baseBreak
+    if (breakRows > 0) {
+      row += breakRows
       x = 0
     }
   }
@@ -27,9 +31,9 @@ export function layoutReaderPixels(model: DocumentModel, metrics: Metrics): Layo
   return map
 }
 
-export function layoutLadderPixels(model: DocumentModel, metrics: Metrics): LayoutMap {
+export function layoutLadderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutMap {
   const map: LayoutMap = new Map()
-  const { words } = model
+  const words = overrideWords ?? model.words
   const maxWidth = metrics.maxCols
   const maxIndent = Math.floor(maxWidth * 0.18)
 
@@ -37,7 +41,9 @@ export function layoutLadderPixels(model: DocumentModel, metrics: Metrics): Layo
   let x = 0
   let indent = 0
 
-  for (const w of words) {
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
+    const next = words[i + 1]
     const width = Math.max(1, w.pixelWidth)
     if (x === 0) x = indent
 
@@ -49,8 +55,11 @@ export function layoutLadderPixels(model: DocumentModel, metrics: Metrics): Layo
     map.set(w.id, { col: Math.round(x), row })
     x += width
 
-    if (w.breakAfter) {
-      row += Math.max(1, w.breakAfterRows)
+    const isParagraphEnd = !next || next.paragraphIndex !== w.paragraphIndex
+    const baseBreak = w.breakAfter ? Math.max(1, w.breakAfterRows) : 0
+    const breakRows = isParagraphEnd ? Math.max(baseBreak, paragraphBreakRows) : baseBreak
+    if (breakRows > 0) {
+      row += breakRows
       x = 0
       if (!w.imageUrl) indent = indent === 0 ? maxIndent : 0
     }

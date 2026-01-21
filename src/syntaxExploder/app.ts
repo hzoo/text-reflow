@@ -1,5 +1,5 @@
 import { signal, computed, effect, batch, untracked } from '@preact/signals-core'
-import { createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT } from './model'
+import { createDocumentFromParagraphs, createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
 import { markdownToParagraphs, markdownToReadingText, stripInlineMarkers, stripJinaPreamble } from './markdown'
@@ -77,10 +77,7 @@ export function start(root: HTMLElement) {
     const rawParas = baseParagraphs$.value
     return rawParas.map(p => p.trim()).filter(Boolean)
   })
-  const currentParaText$ = computed(() => paragraphs$.value[currentPara$.value] || '')
-  const words$ = computed(() => markdownMode$.value
-    ? createWordsMarkdown(currentParaText$.value)
-    : createWords(currentParaText$.value))
+  const document$ = computed(() => createDocumentFromParagraphs(baseParagraphs$.value, markdownMode$.value))
   const sentenceCounts$ = computed(() => getSentenceCounts(baseParagraphs$.value, markdownMode$.value))
 
   // ═══════════════════════════════════════════════════════════
@@ -173,7 +170,13 @@ export function start(root: HTMLElement) {
   // Engine
   // ═══════════════════════════════════════════════════════════
 
-  let engine = createEngine({ canvas, words: words$.value })
+  let engine = createEngine({
+    canvas,
+    words: document$.value,
+    fontFamily: markdownMode$.value ? READER_FONT : undefined,
+    maxContentWidth: maxWidth$.value,
+    pixelLayout: true,
+  })
 
   function syncEngineState(b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) {
     batch(() => {
@@ -185,49 +188,57 @@ export function start(root: HTMLElement) {
     })
   }
 
-  function initEngine() {
-    engine.destroy?.()
-    engine = createEngine({
-      canvas,
-      words: words$.value,
-      fontFamily: markdownMode$.value ? READER_FONT : undefined,
-      maxContentWidth: maxWidth$.value,
-      pixelLayout: true,
-    })
-    engine.onStateChange = syncEngineState
+  engine.onStateChange = syncEngineState
 
-    if ((window as any).__reflowDebug) {
-      const sample = words$.value.words.slice(0, 6).map(w => w.text).join(' ')
-      console.debug('[reflow] initEngine', 'paras', paragraphs$.value.length, 'idx', currentPara$.value, 'words', words$.value.words.length, 'sample', sample)
-    }
-
-    if (isMobile()) {
-      engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
-      engine.setBeat('reader')
-      engine.start()
-      engine.autoFitFontSize()
-    } else {
-      engine.setBeat('reader')
-      engine.start()
-    }
+  if ((window as any).__reflowDebug) {
+    const sample = document$.value.words.slice(0, 6).map(w => w.text).join(' ')
+    console.debug('[reflow] initEngine', 'paras', paragraphs$.value.length, 'idx', currentPara$.value, 'words', document$.value.words.length, 'sample', sample)
   }
 
-  // Reinit engine when paragraph changes
-  effect(() => {
-    const savedSentence = untracked(() => {
-      const global = globalSentence$.value
-      if (global == null) return null
-      if (viewMode$.value === 'full') return global
-      const mapping = mapSentenceToParagraph(global, sentenceCounts$.value)
-      return mapping.localSentence
-    })
-    void currentParaText$.value // subscribe
-    initEngine()
-    if (savedSentence != null) {
-      requestAnimationFrame(() => {
-        engine.setSentence(savedSentence)
-      })
+  const applyEngineScope = () => {
+    const counts = sentenceCounts$.value
+    const paragraphIndex = currentPara$.value
+    const global = untracked(() => globalSentence$.value)
+    if (viewMode$.value === 'full') {
+      const breakRows = markdownMode$.value ? 2 : 1
+      engine.setScope({ mode: 'full', paragraphBreakRows: breakRows })
+      if (global != null) engine.setSentence(global)
+      if (isMobile()) engine.autoFitFontSize()
+      return
     }
+
+    const offset = getSentenceOffset(counts, paragraphIndex)
+    const sentenceCount = counts[paragraphIndex] ?? 0
+    engine.setScope({ mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount })
+    if (global != null && sentenceCount > 0) {
+      const local = Math.max(0, Math.min(sentenceCount - 1, global - offset))
+      engine.setSentence(local)
+    }
+    if (isMobile()) engine.autoFitFontSize()
+  }
+
+  applyEngineScope()
+
+  if (isMobile()) {
+    engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
+    engine.setBeat('reader')
+    engine.start()
+    engine.autoFitFontSize()
+  } else {
+    engine.setBeat('reader')
+    engine.start()
+  }
+
+  effect(() => {
+    engine.setModel(document$.value)
+  })
+
+  effect(() => {
+    engine.setFontFamily(markdownMode$.value ? READER_FONT : undefined)
+  })
+
+  effect(() => {
+    applyEngineScope()
   })
 
   // Keep global sentence index in sync with engine state
@@ -416,11 +427,12 @@ export function start(root: HTMLElement) {
     const mode = markdownMode$.value ? 'markdown' : 'plain'
     const view = viewMode$.value
     const sentenceId = sentence$.value
+    const globalSentence = globalSentence$.value
     let paraId = 0
     let paraRange = '—'
-    if (sentenceId !== null) {
-      const words = words$.value.words
-      const word = words.find((w) => w.sentenceIndex === sentenceId)
+    if (globalSentence !== null) {
+      const words = document$.value.words
+      const word = words.find((w) => w.sentenceIndex === globalSentence)
       if (word) paraId = word.paragraphIndex
       const matches = words.filter((w) => w.paragraphIndex === paraId)
       if (matches.length > 0) {
@@ -709,7 +721,6 @@ export function start(root: HTMLElement) {
   // Init
   // ═══════════════════════════════════════════════════════════
 
-  initEngine()
   updateSizeDisplay()
   updateWidthDisplay()
 
