@@ -9,6 +9,10 @@ export type Word = {
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
   linkUrl?: string
+  imageUrl?: string
+  imageAlt?: string
+  imageW?: number
+  imageH?: number
   breakAfter: boolean
   breakAfterRows: number
   paragraphIndex: number
@@ -238,6 +242,10 @@ function extractUrl(raw: string): string | undefined {
   return url
 }
 
+function isLikelyImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|avif|svg)(\?|#|$)/i.test(url)
+}
+
 type BlockStyle = 'title' | 'heading' | 'bullet' | 'body'
 
 export function createWordsMarkdown(text: string): DocumentModel {
@@ -285,6 +293,53 @@ export function createWordsMarkdown(text: string): DocumentModel {
     wordsBySentence[sentenceIndex].push(words[words.length - 1])
     if (isSentenceEnd(raw)) sentenceIndex++
     tokenIndex++
+  }
+
+  function pushImage(url: string, alt: string) {
+    const label = alt || 'Image'
+    const id = `w${tokenIndex}`
+    words.push({
+      id,
+      tokenIndex,
+      sentenceIndex,
+      text: label,
+      displayText: label,
+      spaceAfter: false,
+      baseScale: 1,
+      fontStyle: 'normal',
+      fontWeight: 'normal',
+      linkUrl: url,
+      imageUrl: url,
+      imageAlt: label,
+      breakAfter: true,
+      breakAfterRows: 1,
+      paragraphIndex: 0,
+      targetX: 0,
+      targetY: 0,
+      animX: 0,
+      animY: 0,
+      focusDy: 0,
+      targetScale: 1,
+      animScale: 1,
+      pixelWidth: 0,
+    })
+
+    metaById.set(id, { isStop: false, isPunct: false })
+    if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
+    wordsBySentence[sentenceIndex].push(words[words.length - 1])
+    tokenIndex++
+  }
+
+  function imageFromSegment(segment: InlineSegment): { url: string; alt: string } | null {
+    const url = segment.style.imageUrl || segment.style.linkUrl
+    if (!url) return null
+    const rawLabel = segment.text.trim()
+    const cleaned = rawLabel.replace(/^image\s*:\s*/i, '').trim()
+    const alt = cleaned || 'Image'
+    if (segment.style.imageUrl) return { url, alt }
+    if (!isLikelyImageUrl(url)) return null
+    if (/^image\b/i.test(rawLabel) || rawLabel === '') return { url, alt }
+    return null
   }
 
   function parseLine(line: string): { style: BlockStyle; content: string } {
@@ -338,12 +393,23 @@ export function createWordsMarkdown(text: string): DocumentModel {
     const segments = parseInlineMarkers(lineText)
     const blockWeight: InlineStyle['fontWeight'] = (style === 'title' || style === 'heading') ? 'bold' : 'normal'
     for (const segment of segments) {
+      const imageInfo = imageFromSegment(segment)
+      if (imageInfo) {
+        const prev = words[words.length - 1]
+        if (prev && !prev.breakAfter) {
+          prev.breakAfter = true
+          prev.breakAfterRows = Math.max(prev.breakAfterRows, 1)
+        }
+        pushImage(imageInfo.url, imageInfo.alt)
+        continue
+      }
       const segmentText = applyLeadingSpace(segment.text)
       if (!segmentText) continue
       const segmentStyle: InlineStyle = {
         fontStyle: segment.style.fontStyle,
         fontWeight: segment.style.fontWeight === 'bold' ? 'bold' : blockWeight,
         linkUrl: segment.style.linkUrl,
+        imageUrl: segment.style.imageUrl,
       }
       const re = /\S+(\s+|$)/g
       for (const match of segmentText.matchAll(re)) {
@@ -408,6 +474,7 @@ type InlineStyle = {
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
   linkUrl?: string
+  imageUrl?: string
 }
 
 type InlineSegment = {
@@ -417,10 +484,11 @@ type InlineSegment = {
 
 function parseInlineMarkers(text: string): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const marker = /\[\[(\/)?(strong|em|link)(?::([^\]]+))?\]\]/g
+  const marker = /\[\[(\/)?(strong|em|link|image)(?::([^\]]+))?\]\]/g
   const weightStack: Array<'normal' | 'bold'> = ['normal']
   const styleStack: Array<'normal' | 'italic'> = ['normal']
   const linkStack: Array<string | undefined> = [undefined]
+  const imageStack: Array<string | undefined> = [undefined]
   let lastIndex = 0
 
   function pushSegment(value: string) {
@@ -431,6 +499,7 @@ function parseInlineMarkers(text: string): InlineSegment[] {
         fontStyle: styleStack[styleStack.length - 1],
         fontWeight: weightStack[weightStack.length - 1],
         linkUrl: linkStack[linkStack.length - 1],
+        imageUrl: imageStack[imageStack.length - 1],
       },
     })
   }
@@ -447,10 +516,12 @@ function parseInlineMarkers(text: string): InlineSegment[] {
       if (kind === 'strong') weightStack.push('bold')
       else if (kind === 'em') styleStack.push('italic')
       else if (kind === 'link') linkStack.push(value)
+      else if (kind === 'image') imageStack.push(value)
     } else {
       if (kind === 'strong' && weightStack.length > 1) weightStack.pop()
       else if (kind === 'em' && styleStack.length > 1) styleStack.pop()
       else if (kind === 'link' && linkStack.length > 1) linkStack.pop()
+      else if (kind === 'image' && imageStack.length > 1) imageStack.pop()
     }
     lastIndex = marker.lastIndex
   }

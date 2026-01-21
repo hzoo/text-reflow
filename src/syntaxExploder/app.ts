@@ -509,7 +509,7 @@ export function start(root: HTMLElement) {
 
   function looksLikeMarkdown(text: string): boolean {
     if (!text) return false
-    return /\[\[(strong|em|link)/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
+    return /\[\[(strong|em|link|image)/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
   }
 
   async function loadFromUrl() {

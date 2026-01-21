@@ -2,6 +2,13 @@ import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } f
 import { createRenderer } from './engine-render'
 import type { DocumentModel, Word } from './model'
 
+type ImageCacheEntry = {
+  img: HTMLImageElement
+  status: 'loading' | 'loaded' | 'error'
+  naturalWidth: number
+  naturalHeight: number
+}
+
 type EngineOpts = {
   canvas: HTMLCanvasElement
   words: DocumentModel
@@ -16,6 +23,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   const ctx = context
 
   let running = false
+  let destroyed = false
   let beat: BeatId = 'reader'
   let focusStyle: FocusStyleId = 'gray'
 
@@ -36,6 +44,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   // Cached sentence centers for magnify mode
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
+  const imageCache = new Map<string, ImageCacheEntry>()
+  let imageRelayoutPending = false
 
   let needsRedraw = true
   let rafId = 0
@@ -56,6 +66,42 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   function invalidate() {
     needsRedraw = true
     requestFrame()
+  }
+
+  function scheduleImageRelayout() {
+    if (destroyed || imageRelayoutPending) return
+    imageRelayoutPending = true
+    requestAnimationFrame(() => {
+      imageRelayoutPending = false
+      if (destroyed) return
+      layoutCurrentBeat()
+    })
+  }
+
+  function ensureImage(url: string): ImageCacheEntry {
+    const existing = imageCache.get(url)
+    if (existing) return existing
+    const img = new Image()
+    const entry: ImageCacheEntry = {
+      img,
+      status: 'loading',
+      naturalWidth: 0,
+      naturalHeight: 0,
+    }
+    imageCache.set(url, entry)
+    img.decoding = 'async'
+    img.onload = () => {
+      entry.status = 'loaded'
+      entry.naturalWidth = img.naturalWidth || 0
+      entry.naturalHeight = img.naturalHeight || 0
+      scheduleImageRelayout()
+    }
+    img.onerror = () => {
+      entry.status = 'error'
+      scheduleImageRelayout()
+    }
+    img.src = url
+    return entry
   }
 
   const metrics: Metrics = {
@@ -142,8 +188,27 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
   function updateWordCols() {
     const words = model.words
+    const blockW = metrics.maxCols * metrics.charW
+    const fallbackW = Math.max(1, Math.min(blockW, 360))
+    const fallbackH = Math.max(metrics.lineH, Math.round(fallbackW * 0.6))
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
+      if (w.imageUrl) {
+        const entry = ensureImage(w.imageUrl)
+        let drawW = fallbackW
+        let drawH = fallbackH
+        if (entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
+          const scale = Math.min(1, blockW / entry.naturalWidth)
+          drawW = Math.round(entry.naturalWidth * scale)
+          drawH = Math.round(entry.naturalHeight * scale)
+        }
+        w.imageW = drawW
+        w.imageH = drawH
+        w.pixelWidth = Math.max(1, drawW)
+        w.breakAfter = true
+        w.breakAfterRows = Math.max(1, Math.ceil(drawH / metrics.lineH))
+        continue
+      }
       const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
       const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
       let font = fontCache.get(fontKey)
@@ -165,6 +230,11 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     return model.wordsBySentence[sentenceIndex] || []
   }
 
+  function wordRowSpan(w: Word): number {
+    if (!w.imageH) return 1
+    return Math.max(1, Math.ceil(w.imageH / metrics.lineH))
+  }
+
   const { drawWord, drawWordPlain, drawWordRedactRect, wordIndexUnder } = createRenderer({
     ctx,
     model,
@@ -172,6 +242,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     fontFamily,
     fontCache,
     sentenceCenterCache,
+    imageCache,
     scaleEps: SCALE_EPS,
     getSentenceWords,
     get animPadY() { return animPadY },
@@ -188,8 +259,10 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     let maxRow = 0
     let maxX = 0
     for (const w of words) {
-      if (w.targetY > maxRow) maxRow = w.targetY
-      const endX = w.targetX + w.pixelWidth
+      const span = wordRowSpan(w)
+      const endRow = w.targetY + span - 1
+      if (endRow > maxRow) maxRow = endRow
+      const endX = w.targetX + Math.max(1, w.pixelWidth)
       if (endX > maxX) maxX = endX
     }
     return { maxRow, maxX }
@@ -367,8 +440,9 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     let maxRow = -Infinity
     for (let i = paraStart; i <= paraEnd; i++) {
       const w = words[i]
+      const span = wordRowSpan(w)
       minRow = Math.min(minRow, w.targetY)
-      maxRow = Math.max(maxRow, w.targetY)
+      maxRow = Math.max(maxRow, w.targetY + span - 1)
     }
 
     const top = metrics.padY + minRow * metrics.lineH + panY
@@ -632,6 +706,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   function destroy() {
+    destroyed = true
     running = false
     if (rafId) cancelAnimationFrame(rafId)
     rafId = 0

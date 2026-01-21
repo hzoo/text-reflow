@@ -8,6 +8,7 @@ export type RenderState = {
   fontFamily: string
   fontCache: Map<string, string>
   sentenceCenterCache: Map<number, { centerCol: number; centerRow: number }>
+  imageCache: Map<string, { img: CanvasImageSource; status: 'loading' | 'loaded' | 'error' }>
   scaleEps: number
   getSentenceWords: (sentenceIndex: number) => Word[]
   readonly animPadY: number
@@ -81,8 +82,16 @@ export function createRenderer(state: RenderState) {
     return { x, y, s }
   }
 
-  function isWordVisible(pos: WordPos): boolean {
-    const height = metrics.lineH * pos.s
+  function wordWidth(w: Word): number {
+    return Math.max(1, w.imageW ?? w.pixelWidth)
+  }
+
+  function wordHeight(w: Word): number {
+    return w.imageH ?? metrics.lineH
+  }
+
+  function isWordVisible(w: Word, pos: WordPos): boolean {
+    const height = wordHeight(w) * pos.s
     const top = pos.y
     const bottom = pos.y + height
     const viewportTop = -metrics.lineH
@@ -107,27 +116,61 @@ export function createRenderer(state: RenderState) {
     }
   }
 
+  function drawWordImage(w: Word, pos: WordPos) {
+    const width = wordWidth(w) * pos.s
+    const height = wordHeight(w) * pos.s
+    const entry = w.imageUrl ? state.imageCache.get(w.imageUrl) : undefined
+    if (entry?.status === 'loaded') {
+      ctx.drawImage(entry.img, pos.x, pos.y, width, height)
+      return
+    }
+    ctx.save()
+    ctx.fillStyle = '#f1f1f1'
+    ctx.strokeStyle = '#c9c9c9'
+    ctx.lineWidth = 1
+    ctx.fillRect(pos.x, pos.y, width, height)
+    ctx.strokeRect(pos.x + 0.5, pos.y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1))
+    ctx.fillStyle = '#666'
+    const label = entry?.status === 'error'
+      ? 'Image failed to load'
+      : (w.imageAlt ? `Image: ${w.imageAlt}` : 'Image')
+    const labelSize = Math.max(10, Math.round(state.fontSize * 0.7 * pos.s))
+    ctx.font = `${labelSize}px ${state.fontFamily}`
+    ctx.fillText(label, pos.x + 8, pos.y + 8)
+    ctx.restore()
+  }
+
   function drawWordPlain(w: Word) {
     const pos = computeWordPosition(w)
-    if (!isWordVisible(pos)) return
+    if (!isWordVisible(w, pos)) return
+    if (w.imageUrl) {
+      drawWordImage(w, pos)
+      return
+    }
     drawWordText(w, pos)
   }
 
   function drawWordRedactRect(w: Word) {
     const pos = computeWordPosition(w)
-    if (!isWordVisible(pos)) return
-    const width = Math.max(1, w.pixelWidth) * pos.s
+    if (!isWordVisible(w, pos)) return
+    const width = wordWidth(w) * pos.s
+    const height = wordHeight(w) * pos.s
     ctx.fillRect(
       pos.x,
       pos.y + 2 * pos.s,
-      width - 2 * pos.s,
-      metrics.lineH * pos.s - 4 * pos.s
+      Math.max(0, width - 2 * pos.s),
+      Math.max(0, height - 4 * pos.s)
     )
   }
 
   function drawWord(w: Word) {
     const pos = computeWordPosition(w)
-    if (!isWordVisible(pos)) return
+    if (!isWordVisible(w, pos)) return
+
+    if (w.imageUrl) {
+      drawWordImage(w, pos)
+      return
+    }
 
     // hover highlight
     const isHover = state.hoveredSentence != null && w.sentenceIndex === state.hoveredSentence
@@ -179,8 +222,8 @@ export function createRenderer(state: RenderState) {
 
       let x = baseX
       let y = baseY
-      let width = Math.max(1, w.pixelWidth)
-      let height = metrics.lineH
+      let width = wordWidth(w)
+      let height = wordHeight(w)
 
       // For magnified words, compute actual position from center zoom
       if (s > state.scaleEps) {

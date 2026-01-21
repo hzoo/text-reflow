@@ -27,6 +27,8 @@ export function stripInlineMarkers(text: string): string {
     .replace(/\[\[\/em\]\]/g, '')
     .replace(/\[\[link:[^\]]+\]\]/g, '')
     .replace(/\[\[\/link\]\]/g, '')
+    .replace(/\[\[image:[^\]]+\]\]/g, '')
+    .replace(/\[\[\/image\]\]/g, '')
 }
 
 export function markdownToParagraphs(raw: string): string[] {
@@ -170,7 +172,7 @@ function inlineTokensToText(tokens: any): string {
       }
       case 'image': {
         const label = token.text ? `Image: ${token.text}` : 'Image'
-        if (token.href) parts.push(`[[link:${token.href}]]${label}[[/link]]`)
+        if (token.href) parts.push(`[[image:${token.href}]]${label}[[/image]]`)
         else parts.push(label)
         break
       }

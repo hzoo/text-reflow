@@ -52,7 +52,7 @@ export function layoutLadderPixels(model: DocumentModel, metrics: Metrics): Layo
     if (w.breakAfter) {
       row += Math.max(1, w.breakAfterRows)
       x = 0
-      indent = indent === 0 ? maxIndent : 0
+      if (!w.imageUrl) indent = indent === 0 ? maxIndent : 0
     }
   }
 
