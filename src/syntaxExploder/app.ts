@@ -1,5 +1,5 @@
 import { signal, computed, effect, batch, untracked } from '@preact/signals-core'
-import { createDocumentFromParagraphs, createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT } from './model'
+import { createDocumentFromParagraphs, createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, type DocumentModel } from './model'
 import { type BeatId, BEATS, type FocusStyleId } from './experiments'
 import { createEngine } from './engine'
 import { markdownToParagraphs, markdownToReadingText, stripInlineMarkers, stripJinaPreamble } from './markdown'
@@ -78,7 +78,7 @@ export function start(root: HTMLElement) {
     return rawParas.map(p => p.trim()).filter(Boolean)
   })
   const document$ = computed(() => createDocumentFromParagraphs(baseParagraphs$.value, markdownMode$.value))
-  const sentenceCounts$ = computed(() => getSentenceCounts(baseParagraphs$.value, markdownMode$.value))
+  const sentenceCounts$ = computed(() => getSentenceCounts(baseParagraphs$.value, markdownMode$.value, document$.value))
 
   // ═══════════════════════════════════════════════════════════
   // DOM Setup
@@ -725,10 +725,17 @@ export function start(root: HTMLElement) {
   updateWidthDisplay()
 
   // Expose for debugging
-  ;(window as any).syntaxExploder = { engine, paragraphs$, currentPara$, BEATS }
+  ;(window as any).syntaxExploder = { engine, paragraphs$, currentPara$, document$, sentenceCounts$, BEATS }
 }
 
-function getSentenceCounts(paragraphs: string[], useMarkdown: boolean): number[] {
+function getSentenceCounts(paragraphs: string[], useMarkdown: boolean, doc: DocumentModel): number[] {
+  // If Bible mode was detected, all sentences are in the doc (not split by paragraph)
+  const fullText = paragraphs.join('\n\n')
+  const { isBible } = detectBibleVerses(fullText)
+  if (isBible) {
+    return [doc.sentenceCount]
+  }
+
   const create = useMarkdown ? createWordsMarkdown : createWords
   return paragraphs.map((paragraph) => create(paragraph).sentenceCount)
 }

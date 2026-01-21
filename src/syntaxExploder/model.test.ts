@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createWords, splitParagraphs, SAMPLE_TEXTS } from './model'
+import { createWords, splitParagraphs, SAMPLE_TEXTS, detectBibleVerses, splitByVerseNumber, createWordsBible, createDocumentFromParagraphs } from './model'
 
 describe('createWords', () => {
   test('tokenizes simple text', () => {
@@ -105,5 +105,131 @@ describe('splitParagraphs', () => {
   test('filters empty paragraphs', () => {
     const result = splitParagraphs('First\n\n\n\nSecond')
     expect(result).toEqual(['First', 'Second'])
+  })
+})
+
+describe('Bible verse detection', () => {
+  test('detects sequential verse numbers', () => {
+    const text = '31 "If I testify about myself. 32 There is another. 33 You have sent to John.'
+    const result = detectBibleVerses(text)
+    expect(result.isBible).toBe(true)
+    expect(result.verseNumbers).toEqual([31, 32, 33])
+  })
+
+  test('rejects non-sequential numbers', () => {
+    const text = '5 apples and 17 oranges make 99 fruit salads.'
+    const result = detectBibleVerses(text)
+    expect(result.isBible).toBe(false)
+  })
+
+  test('rejects text with too few verse-like numbers', () => {
+    const text = '1 First item. 2 Second item.'
+    const result = detectBibleVerses(text)
+    expect(result.isBible).toBe(false) // only 2 numbers
+  })
+
+  test('allows small gaps in sequence', () => {
+    const text = '1 First verse. 2 Second verse. 4 Fourth verse.' // missing 3
+    const result = detectBibleVerses(text)
+    expect(result.isBible).toBe(true)
+  })
+
+  test('detects john5 sample as Bible', () => {
+    const result = detectBibleVerses(SAMPLE_TEXTS.john5)
+    expect(result.isBible).toBe(true)
+    expect(result.verseNumbers.length).toBeGreaterThan(10)
+  })
+
+  test('rejects engelbart sample', () => {
+    const result = detectBibleVerses(SAMPLE_TEXTS.engelbart)
+    expect(result.isBible).toBe(false)
+  })
+})
+
+describe('splitByVerseNumber', () => {
+  test('splits text at verse numbers', () => {
+    const text = '31 First verse. 32 Second verse. 33 Third verse.'
+    const verses = splitByVerseNumber(text)
+    expect(verses.length).toBe(3)
+    expect(verses[0]).toContain('31')
+    expect(verses[1]).toContain('32')
+    expect(verses[2]).toContain('33')
+  })
+})
+
+describe('createWordsBible', () => {
+  test('parses Bible text with verse indices', () => {
+    const text = '1 First verse here. 2 Second verse here. 3 Third verse here.'
+    const doc = createWordsBible(text)
+    expect(doc.sentenceCount).toBe(3) // one per verse
+    expect(doc.wordsBySentence.length).toBe(3)
+  })
+
+  test('verse numbers become words with smaller scale', () => {
+    const text = '1 First verse. 2 Second verse. 3 Third verse.'
+    const doc = createWordsBible(text)
+    const firstWord = doc.words[0]
+    expect(firstWord.text).toBe('1')
+    expect(firstWord.baseScale).toBe(0.85)
+  })
+
+  test('handles john5 sample correctly', () => {
+    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+    expect(doc.sentenceCount).toBeGreaterThan(10) // ~17 verses
+    expect(doc.words.length).toBeGreaterThan(100)
+  })
+
+  test('each verse starts with number or is a heading', () => {
+    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+
+    for (let i = 0; i < doc.sentenceCount; i++) {
+      const words = doc.wordsBySentence[i]
+      expect(words.length).toBeGreaterThan(0)
+
+      const firstWord = words[0].text
+      const isNumber = /^\d+$/.test(firstWord)
+      const isHeading = i === 0 && !isNumber // First sentence can be a heading
+
+      expect(isNumber || isHeading).toBe(true)
+
+      // If it's a verse number, second word should exist and be text
+      if (isNumber && words.length > 1) {
+        expect(/^[A-Za-z"'""]/.test(words[1].text)).toBe(true)
+      }
+    }
+  })
+
+  test('verse numbers are sequential', () => {
+    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+    const verseNums: number[] = []
+
+    for (let i = 0; i < doc.sentenceCount; i++) {
+      const firstWord = doc.wordsBySentence[i][0].text
+      if (/^\d+$/.test(firstWord)) {
+        verseNums.push(parseInt(firstWord, 10))
+      }
+    }
+
+    // Check sequential (allow gaps of 1)
+    for (let i = 1; i < verseNums.length; i++) {
+      const diff = verseNums[i] - verseNums[i - 1]
+      expect(diff).toBeGreaterThanOrEqual(1)
+      expect(diff).toBeLessThanOrEqual(2)
+    }
+  })
+})
+
+describe('auto-detection in createDocumentFromParagraphs', () => {
+  test('auto-detects Bible text and uses verse splitting', () => {
+    const paragraphs = [SAMPLE_TEXTS.john5]
+    const doc = createDocumentFromParagraphs(paragraphs, false)
+    // Should have ~17 verses (sentences)
+    expect(doc.sentenceCount).toBeGreaterThan(10)
+  })
+
+  test('uses normal sentence splitting for non-Bible text', () => {
+    const paragraphs = [SAMPLE_TEXTS.short]
+    const doc = createDocumentFromParagraphs(paragraphs, false)
+    expect(doc.sentenceCount).toBe(2) // Two sentences
   })
 })
