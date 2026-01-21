@@ -201,18 +201,18 @@ export function start(root: HTMLElement) {
     const global = untracked(() => globalSentence$.value)
     if (viewMode$.value === 'full') {
       const breakRows = markdownMode$.value ? 2 : 1
-      engine.setScope({ mode: 'full', paragraphBreakRows: breakRows })
-      if (global != null) engine.setSentence(global)
+      engine.setScope({ mode: 'full', paragraphBreakRows: breakRows }, { snap: true })
+      if (global != null) engine.setSentence(global, { snap: true })
       if (isMobile()) engine.autoFitFontSize()
       return
     }
 
     const offset = getSentenceOffset(counts, paragraphIndex)
     const sentenceCount = counts[paragraphIndex] ?? 0
-    engine.setScope({ mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount })
+    engine.setScope({ mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount }, { snap: true })
     if (global != null && sentenceCount > 0) {
       const local = Math.max(0, Math.min(sentenceCount - 1, global - offset))
-      engine.setSentence(local)
+      engine.setSentence(local, { snap: true })
     }
     if (isMobile()) engine.autoFitFontSize()
   }

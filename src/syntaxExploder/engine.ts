@@ -431,18 +431,38 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (invalidateLayout) invalidate()
   }
 
-  function setScope(nextScope: LayoutScope) {
+  function setScope(nextScope: LayoutScope, opts: { snap?: boolean } = {}) {
     applyScope(nextScope)
     layoutCurrentBeat()
+    if (opts.snap) {
+      animPadY = metrics.padY
+      animPadX = metrics.padX
+      animPanY = panY
+      for (const w of visibleWords) {
+        w.animX = w.targetX
+        w.animY = w.targetY
+        w.animScale = w.targetScale
+      }
+    }
     notifyStateChange()
     invalidate()
   }
 
-  function setModel(nextModel: DocumentModel) {
+  function setModel(nextModel: DocumentModel, opts: { snap?: boolean } = {}) {
     model = nextModel
     renderState.model = model
     applyScope(scope)
     layoutCurrentBeat()
+    if (opts.snap) {
+      animPadY = metrics.padY
+      animPadX = metrics.padX
+      animPanY = panY
+      for (const w of visibleWords) {
+        w.animX = w.targetX
+        w.animY = w.targetY
+        w.animScale = w.targetScale
+      }
+    }
     notifyStateChange()
     invalidate()
   }
