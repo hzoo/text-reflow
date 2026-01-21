@@ -152,7 +152,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const EPS = 0.001
   const LN_0_0001 = Math.log(0.0003)
   const LN_0_001 = Math.log(0.002)
-  const LN_0_01 = Math.log(0.01)
+  const LN_0_01 = Math.log(0.002)
   let animPadY = 24
   let animPadX = 24
   let panY = 0
@@ -160,6 +160,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let moveSpeed = 1
   let panSpeed = 1
   let focusSpeed = 1
+  let fullFocusPush = false
 
   function applyDPR() {
     const dpr = Math.max(1, window.devicePixelRatio || 1)
@@ -546,7 +547,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const hoveredGlobal = hoveredSentenceGlobal()
     if (hoveredGlobal == null) return 0
 
-    const baseGap = scope.mode === 'full' ? 0 : 32
+    const baseGap = scope.mode === 'full' ? (fullFocusPush ? 24 : 0) : 32
 
     if (sentenceIndex < hoveredGlobal) return -baseGap / 2
     if (sentenceIndex > hoveredGlobal) return baseGap / 2
@@ -855,6 +856,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,
     setSentence,
+    setFullFocusPush: (next: boolean) => { fullFocusPush = next },
     setScope,
     setModel,
     destroy,

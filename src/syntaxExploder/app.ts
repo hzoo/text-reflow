@@ -53,6 +53,7 @@ export function start(root: HTMLElement) {
   const moveSpeed$ = signal(1)
   const panSpeed$ = signal(1)
   const focusSpeed$ = signal(1)
+  const fullPush$ = signal(false)
 
   // Engine state (from engine callbacks)
   const beat$ = signal<BeatId>('reader')
@@ -93,20 +94,35 @@ export function start(root: HTMLElement) {
   hud.innerHTML = `
     <div class="hud-handle"></div>
     <div class="hud-progress">
-      <div class="progress-dots" id="progress-dots"></div>
+      <span class="hud-label">Read</span>
       <span class="para-label" id="para-label"></span>
     </div>
-    <div class="layout-picker" id="layout-picker">
-      ${(Object.keys(LAYOUT_ICONS) as BeatId[])
-        .map(id => `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`)
-        .join('')}
+    <div class="hud-section">
+      <span class="hud-label">Beat</span>
+      <div class="layout-picker" id="layout-picker">
+        ${(Object.keys(LAYOUT_ICONS) as BeatId[])
+          .map(id => `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`)
+          .join('')}
+      </div>
     </div>
-    <div class="focus-picker" id="focus-picker">
-      <button class="focus-btn" id="focus-toggle" type="button">Dim</button>
+    <div class="hud-section">
+      <span class="hud-label">Focus</span>
+      <div class="focus-picker" id="focus-picker">
+        <button class="focus-btn" id="focus-toggle" type="button">Dim</button>
+      </div>
     </div>
-    <div class="hud-scrubbers">
-      <span class="scrub-row">A <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
-      <span class="scrub-row">· W <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
+    <div class="hud-section">
+      <span class="hud-label">Size</span>
+      <div class="hud-scrubbers">
+        <span class="scrub-row">A <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
+        <span class="scrub-row">· W <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
+      </div>
+    </div>
+    <div class="hud-section">
+      <span class="hud-label">View</span>
+      <div class="hud-toggles">
+        <button class="hud-toggle" id="view-toggle" type="button">Full</button>
+      </div>
     </div>
     <div class="hud-keys">
       <span>↑↓ nav · ←→ para · v view · f focus · esc hide</span>
@@ -115,12 +131,22 @@ export function start(root: HTMLElement) {
       </div>
     </div>
     <div class="hud-extra" id="hud-extra">
-      <button class="hud-toggle" id="view-toggle" type="button">Full</button>
-      <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
-      <div class="hud-speeds">
-        <span class="scrub-row">Mv <span class="scrub" id="move-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
-        <span class="scrub-row">Pn <span class="scrub" id="pan-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
-        <span class="scrub-row">Fc <span class="scrub" id="focus-scrub" data-min="0.5" data-max="2" data-step="0.1">1</span></span>
+      <div class="hud-section">
+        <span class="hud-label">More</span>
+        <div class="hud-toggles">
+          <button class="hud-toggle" id="debug-toggle" type="button">Log</button>
+          <button class="hud-toggle" id="fullpush-toggle" type="button">Push</button>
+        </div>
+      </div>
+
+      </div>
+      <div class="hud-section">
+        <span class="hud-label">Speed</span>
+        <div class="hud-speeds">
+          <div class="scrub-row">Move <span class="scrub" id="move-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+          <div class="scrub-row">Pan <span class="scrub" id="pan-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+          <div class="scrub-row">Focus <span class="scrub" id="focus-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+        </div>
       </div>
     </div>
   `
@@ -147,7 +173,6 @@ export function start(root: HTMLElement) {
   debugPanel.id = 'debug-panel'
   root.appendChild(debugPanel)
 
-  const progressDots = hud.querySelector('#progress-dots') as HTMLElement
   const paraLabel = hud.querySelector('#para-label') as HTMLElement
   const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
   const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
@@ -162,6 +187,7 @@ export function start(root: HTMLElement) {
   const hudExtra = hud.querySelector('#hud-extra') as HTMLDivElement
   const debugToggle = hud.querySelector('#debug-toggle') as HTMLButtonElement
   const viewToggle = hud.querySelector('#view-toggle') as HTMLButtonElement
+  const fullPushToggle = hud.querySelector('#fullpush-toggle') as HTMLButtonElement
   const moveScrub = hud.querySelector('#move-scrub') as HTMLSpanElement
   const panScrub = hud.querySelector('#pan-scrub') as HTMLSpanElement
   const focusScrub = hud.querySelector('#focus-scrub') as HTMLSpanElement
@@ -238,6 +264,10 @@ export function start(root: HTMLElement) {
   })
 
   effect(() => {
+    engine.setFullFocusPush(fullPush$.value)
+  })
+
+  effect(() => {
     applyEngineScope()
   })
 
@@ -270,7 +300,10 @@ export function start(root: HTMLElement) {
     const step = parseFloat(el.dataset.step || '1')
     let startX = 0, startVal = 0, lastTap = 0
 
-    const updateDisplay = () => { el.textContent = String(Math.round(getValue())) }
+    const updateDisplay = () => { 
+      const val = getValue()
+      el.textContent = step < 1 ? val.toFixed(1) : String(Math.round(val))
+    }
 
     const onMove = (e: PointerEvent) => {
       const dx = e.clientX - startX
@@ -329,22 +362,17 @@ export function start(root: HTMLElement) {
   // Effects (reactive UI updates)
   // ═══════════════════════════════════════════════════════════
 
-  // Progress dots
+  // Paragraph label
   effect(() => {
     const paras = paragraphs$.value
     const current = currentPara$.value
-    const maxDots = Math.min(paras.length, 10)
+    const isFull = viewMode$.value === 'full'
 
-    if (paras.length > 1) {
-      progressDots.innerHTML = Array.from({ length: maxDots }, (_, i) => {
-        const classes = ['progress-dot']
-        if (i <= current) classes.push('active')
-        if (i === current) classes.push('current')
-        return `<div class="${classes.join(' ')}"></div>`
-      }).join('')
-      paraLabel.textContent = paras.length > 10 ? `¶ ${current + 1}/${paras.length}` : ''
+    if (isFull) {
+      paraLabel.textContent = 'Full View'
+    } else if (paras.length > 1) {
+      paraLabel.textContent = `¶ ${current + 1}/${paras.length}`
     } else {
-      progressDots.innerHTML = ''
       paraLabel.textContent = ''
     }
   })
@@ -471,6 +499,10 @@ export function start(root: HTMLElement) {
   effect(() => {
     const label = viewMode$.value === 'full' ? 'Split' : 'Full'
     viewToggle.textContent = label
+  })
+
+  effect(() => {
+    fullPushToggle.classList.toggle('active', fullPush$.value)
   })
 
   effect(() => {
@@ -631,6 +663,10 @@ export function start(root: HTMLElement) {
 
   viewToggle.addEventListener('click', () => {
     toggleViewMode()
+  })
+
+  fullPushToggle.addEventListener('click', () => {
+    fullPush$.value = !fullPush$.value
   })
 
   textInput.addEventListener('keydown', e => {

@@ -45,7 +45,7 @@ canvas {
   font-size: 12px;
   line-height: 1.4;
   z-index: 10;
-  max-width: 280px;
+  max-width: 300px;
   box-sizing: border-box;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -63,43 +63,39 @@ canvas {
 .hud-progress {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-}
-
-.progress-dots {
-  display: flex;
-  gap: 5px;
-}
-
-.progress-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.12);
-  transition: background 0.15s ease;
-}
-
-.progress-dot.active {
-  background: var(--accent);
-}
-
-.progress-dot.current {
-  background: var(--accent);
-  box-shadow: 0 0 0 2px rgba(74, 74, 74, 0.2);
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .para-label {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--accent);
+  font-weight: 500;
   white-space: nowrap;
+}
+
+/* ===== HUD Sections ===== */
+.hud-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.hud-label {
+  font-size: 9px;
+  color: rgba(0, 0, 0, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  min-width: 40px;
+  flex-shrink: 0;
 }
 
 /* ===== Layout Picker ===== */
 .layout-picker {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
 }
 
 .layout-btn {
@@ -216,36 +212,90 @@ canvas {
   align-items: center;
 }
 
-.hud-keys .hud-toggle {
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.65);
-  padding: 2px 6px;
+.hud-toggle {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
   border-radius: 6px;
+  background: var(--btn-bg);
+  color: var(--accent);
   font-size: 10px;
+  font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.1s ease;
 }
+
+.hud-toggle:hover {
+  background: var(--btn-bg-hover);
+}
+
+.hud-toggle:active {
+  transform: scale(0.95);
+}
+
+.hud-toggle.active {
+  background: var(--btn-bg-active);
+}
+
 
 .hud-extra {
   display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 4px 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  margin-top: 8px;
+}
+
+.hud-extra-row {
+  display: flex;
   gap: 6px;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
+  flex: 1;
 }
 
 .hud-extra.active {
   display: flex;
 }
 
+.main-toggles {
+  flex: 1;
+  justify-content: flex-start;
+}
+
+.main-toggles .hud-toggle {
+  flex: 1;
+}
+
+.hud-section-speed {
+  margin-top: 4px;
+}
+
 .hud-speeds {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-  font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.03);
+  padding: 10px 14px;
+  border-radius: 12px;
+  flex: 1;
+}
+
+.hud-speeds .scrub-row {
+  justify-content: space-between;
+}
+
+.hud-speeds .scrub-row {
+  gap: 2px;
+}
+
+.hud-speeds .scrub {
+  min-width: 24px;
+  font-size: 10px;
 }
 
 .hud-keys .hud-toggle:hover {
@@ -267,6 +317,17 @@ canvas {
 
   .hud-keys {
     display: none;
+  }
+
+  .hud-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .hud-label {
+    min-width: 0;
+    text-align: center;
   }
 
   .layout-picker {
@@ -293,235 +354,12 @@ canvas {
     min-width: 36px;
   }
 
-  .progress-dot {
-    width: 10px;
-    height: 10px;
-  }
-}
-
-/* Input panel (bottom sheet) */
-#input-panel {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #faf7f0;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 16px 24px 24px;
-  transform: translateY(100%);
-  transition: transform 0.2s ease-out;
-  z-index: 20;
-}
-
-#input-panel.open {
-  transform: translateY(0);
-}
-
-#input-panel .url-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-#input-panel #url-input {
-  flex: 1;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 6px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 13px;
-  box-sizing: border-box;
-}
-
-#input-panel #url-input:focus {
-  outline: none;
-  border-color: rgba(0, 0, 0, 0.3);
-}
-
-#input-panel #url-load {
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.7);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-#input-panel #url-load:hover {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-#input-panel #url-load:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-#input-panel .url-status {
-  font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
-  min-height: 16px;
-  margin-bottom: 8px;
-}
-
-#input-panel .url-status[data-state="error"] {
-  color: #8b2f2f;
-}
-
-#input-panel .url-status[data-state="ok"] {
-  color: #1d6a4b;
-}
-
-#text-input {
-  width: 100%;
-  height: 120px;
-  padding: 12px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-  resize: vertical;
-  box-sizing: border-box;
-}
-
-#text-input:focus {
-  outline: none;
-  border-color: rgba(0, 0, 0, 0.3);
-}
-
-#text-input::placeholder {
-  color: rgba(0, 0, 0, 0.3);
-}
-
-.input-hint {
-  margin-top: 8px;
-  font-size: 10px;
-  opacity: 0.5;
-}
-
-/* Center position indicator */
-#center-indicator {
-  position: fixed;
-  bottom: 32px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 14px;
-  background: rgba(0, 0, 0, 0.06);
-  border-radius: 20px;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  pointer-events: none;
-  z-index: 5;
-}
-
-#center-indicator.visible {
-  opacity: 1;
-}
-
-#center-indicator.at-end {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-/* Debug panel */
-#debug-panel {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  max-width: min(480px, calc(100vw - 32px));
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: rgba(0, 0, 0, 0.75);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-  z-index: 30;
-  display: none;
-  max-height: 45vh;
-  overflow: auto;
-  pointer-events: auto;
-}
-
-#debug-panel.active {
-  display: block;
-}
-
-#debug-panel strong {
-  display: inline-block;
-  min-width: 46px;
-  color: rgba(0, 0, 0, 0.55);
-}
-
-/* Mobile: center indicator above HUD */
-@media (max-width: 600px) {
-  #center-indicator {
-    bottom: 60px;
-  }
-}
-
-/* Mobile HUD toggle handle */
-.hud-handle {
-  display: none;
-}
-
-@media (max-width: 600px) {
-  .hud-handle {
-    display: block;
-    width: 36px;
-    height: 4px;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 2px;
-    margin: 0 auto 8px;
-  }
-
-  /* Collapsed state on mobile */
-  #hud.collapsed {
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-  }
-
-  #hud.collapsed .layout-picker,
-  #hud.collapsed .focus-picker,
-  #hud.collapsed .hud-scrubbers {
-    display: none;
-  }
-
-  #hud.collapsed .hud-handle {
-    margin-bottom: 0;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    background: #0f1113;
-    color: #f5f2eb;
-    --hud-bg: rgba(18, 20, 23, 0.92);
-    --hud-border: rgba(255, 255, 255, 0.12);
-    --hud-shadow: 0 2px 12px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
-    --btn-bg: rgba(255, 255, 255, 0.08);
-    --btn-bg-hover: rgba(255, 255, 255, 0.14);
-    --btn-bg-active: rgba(255, 255, 255, 0.2);
-    --accent: #e0ddd6;
-  }
-
-  .progress-dot {
-    background: rgba(255, 255, 255, 0.18);
-  }
-
-  .progress-dot.current {
-    box-shadow: 0 0 0 2px rgba(224, 221, 214, 0.2);
-  }
-
   .para-label {
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .hud-label {
+    color: rgba(255, 255, 255, 0.3);
   }
 
   .hud-scrubbers {
@@ -534,16 +372,6 @@ canvas {
 
   .hud-speeds {
     color: rgba(255, 255, 255, 0.55);
-  }
-
-  .hud-keys .hud-toggle {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .hud-keys .hud-toggle:hover {
-    background: rgba(255, 255, 255, 0.14);
   }
 
   .layout-btn.active {
