@@ -9,6 +9,7 @@ export type RenderState = {
   fontCache: Map<string, string>
   sentenceCenterCache: Map<number, { centerCol: number; centerRow: number }>
   imageCache: Map<string, { img: CanvasImageSource; status: 'loading' | 'loaded' | 'error' }>
+  ensureImage: (url: string) => void
   scaleEps: number
   getSentenceWords: (sentenceIndex: number) => Word[]
   readonly animPadY: number
@@ -90,6 +91,16 @@ export function createRenderer(state: RenderState) {
     return w.imageH ?? metrics.lineH
   }
 
+  const IMAGE_PRELOAD_MARGIN = 480
+  function isWordNearViewport(w: Word, pos: WordPos, margin = IMAGE_PRELOAD_MARGIN): boolean {
+    const height = wordHeight(w) * pos.s
+    const top = pos.y
+    const bottom = pos.y + height
+    const viewportTop = -margin
+    const viewportBottom = window.innerHeight + margin
+    return bottom >= viewportTop && top <= viewportBottom
+  }
+
   function isWordVisible(w: Word, pos: WordPos): boolean {
     const height = wordHeight(w) * pos.s
     const top = pos.y
@@ -140,8 +151,16 @@ export function createRenderer(state: RenderState) {
     ctx.restore()
   }
 
+  function maybePreloadImage(w: Word, pos: WordPos) {
+    if (!w.imageUrl) return
+    const entry = state.imageCache.get(w.imageUrl)
+    if (entry) return
+    if (isWordNearViewport(w, pos)) state.ensureImage(w.imageUrl)
+  }
+
   function drawWordPlain(w: Word) {
     const pos = computeWordPosition(w)
+    if (w.imageUrl) maybePreloadImage(w, pos)
     if (!isWordVisible(w, pos)) return
     if (w.imageUrl) {
       drawWordImage(w, pos)
@@ -152,6 +171,7 @@ export function createRenderer(state: RenderState) {
 
   function drawWordRedactRect(w: Word) {
     const pos = computeWordPosition(w)
+    if (w.imageUrl) maybePreloadImage(w, pos)
     if (!isWordVisible(w, pos)) return
     const width = wordWidth(w) * pos.s
     const height = wordHeight(w) * pos.s
@@ -165,6 +185,7 @@ export function createRenderer(state: RenderState) {
 
   function drawWord(w: Word) {
     const pos = computeWordPosition(w)
+    if (w.imageUrl) maybePreloadImage(w, pos)
     if (!isWordVisible(w, pos)) return
 
     if (w.imageUrl) {

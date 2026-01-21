@@ -194,10 +194,10 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       if (w.imageUrl) {
-        const entry = ensureImage(w.imageUrl)
+        const entry = imageCache.get(w.imageUrl)
         let drawW = fallbackW
         let drawH = fallbackH
-        if (entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
+        if (entry && entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
           const scale = Math.min(1, blockW / entry.naturalWidth)
           drawW = Math.round(entry.naturalWidth * scale)
           drawH = Math.round(entry.naturalHeight * scale)
@@ -243,6 +243,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     fontCache,
     sentenceCenterCache,
     imageCache,
+    ensureImage: (url: string) => { ensureImage(url) },
     scaleEps: SCALE_EPS,
     getSentenceWords,
     get animPadY() { return animPadY },
