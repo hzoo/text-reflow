@@ -517,7 +517,9 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
     running = true
     needsRedraw = true
-    hoveredSentence = 0 // auto-focus first sentence
+    if (hoveredSentence === null) {
+      hoveredSentence = 0 // auto-focus first sentence
+    }
     notifyStateChange()
     requestFrame()
   }
