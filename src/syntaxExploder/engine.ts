@@ -270,10 +270,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       paragraphBreakRows = scope.paragraphBreakRows
       visibleWords = model.words
     } else {
+      const paragraphIndex = scope.paragraphIndex
       sentenceOffset = scope.sentenceOffset
       sentenceCountInScope = scope.sentenceCount
       paragraphBreakRows = 0
-      visibleWords = model.words.filter((w) => w.paragraphIndex === scope.paragraphIndex)
+      visibleWords = model.words.filter((w) => w.paragraphIndex === paragraphIndex)
     }
 
     if (sentenceCountInScope <= 0) {
@@ -750,13 +751,23 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     invalidate()
   }
 
-  function setSentence(index: number | null) {
+  function setSentence(index: number | null, opts: { snap?: boolean } = {}) {
     if (index === null) {
       hoveredSentence = null
     } else {
       hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, index))
     }
     updatePanForSentence()
+    if (opts.snap) {
+      animPadY = metrics.padY
+      animPadX = metrics.padX
+      animPanY = panY
+      for (const w of visibleWords) {
+        w.animX = w.targetX
+        w.animY = w.targetY
+        w.animScale = w.targetScale
+      }
+    }
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()
