@@ -522,23 +522,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     let minRow = Infinity
     let maxRow = -Infinity
 
-    if (scope.mode === 'full') {
-      for (let i = 0; i < sentenceWords.length; i++) {
-        const w = sentenceWords[i]
-        const span = wordRowSpan(w)
-        minRow = Math.min(minRow, w.targetY)
-        maxRow = Math.max(maxRow, w.targetY + span - 1)
-      }
-    } else {
-      const paragraphId = sentenceWords[0].paragraphIndex
-      const words = visibleWords
-      for (let i = 0; i < words.length; i++) {
-        const w = words[i]
-        if (w.paragraphIndex !== paragraphId) continue
-        const span = wordRowSpan(w)
-        minRow = Math.min(minRow, w.targetY)
-        maxRow = Math.max(maxRow, w.targetY + span - 1)
-      }
+    const paragraphId = sentenceWords[0].paragraphIndex
+    const words = visibleWords
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      if (w.paragraphIndex !== paragraphId) continue
+      const span = wordRowSpan(w)
+      minRow = Math.min(minRow, w.targetY)
+      maxRow = Math.max(maxRow, w.targetY + span - 1)
     }
     if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
 
@@ -554,9 +545,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function sentenceYOffset(sentenceIndex: number): number {
     const hoveredGlobal = hoveredSentenceGlobal()
     if (hoveredGlobal == null) return 0
-    
-    const baseGap = 48
-    
+
+    const baseGap = scope.mode === 'full' ? 0 : 32
+
     if (sentenceIndex < hoveredGlobal) return -baseGap / 2
     if (sentenceIndex > hoveredGlobal) return baseGap / 2
     return 0
@@ -786,6 +777,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         w.animX = w.targetX
         w.animY = w.targetY
         w.animScale = w.targetScale
+        w.focusDy = sentenceYOffset(w.sentenceIndex)
       }
     }
     if (sentenceOnlyMode) fitCurrentSentence()
