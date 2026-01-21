@@ -118,7 +118,13 @@ export const SAMPLE_TEXTS = {
 
 export const DEFAULT_TEXT = SAMPLE_TEXTS.engelbart
 
-const SENTENCE_END = /[.!?]$/
+const ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'no', 'fig', 'figs', 'dept', 'inc', 'ltd', 'co',
+  'e.g', 'i.e', 'etc', 'vs', 'al', 'ed', 'rev', 'eq', 'eqs', 'sec', 'secs',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+])
+const SENTENCE_END = /[.!?]["'”’\)\]]*$/
+const SENTENCE_SKIP = /[.!?]["'”’\)\]]*,$/
 const PUNCT_ONLY = /^[\p{P}]+$/u
 
 /** Split text into paragraphs (smart detect: double newline for prose, single for poetry) */
@@ -160,12 +166,23 @@ export function createWords(text: string): DocumentModel {
 
   // token + trailing whitespace
   const re = /\S+(\s+|$)/g
-  for (const match of text.matchAll(re)) {
+  const tokens = Array.from(text.matchAll(re)).map(match => {
     const token = match[0]
     const raw = token.replace(/\s+$/g, '')
-    const spaceAfter = /\s+$/.test(token)
-    const displayText = raw + (spaceAfter ? ' ' : '')
-    const breakAfter = /\n/.test(token)
+    return {
+      token,
+      raw,
+      spaceAfter: /\s+$/.test(token),
+      displayText: raw + (/\s+$/.test(token) ? ' ' : ''),
+    }
+  })
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    const raw = token.raw
+    const spaceAfter = token.spaceAfter
+    const displayText = token.displayText
+    const breakAfter = /\n/.test(token.token)
     const breakAfterRows = breakAfter ? 1 : 0
 
     const id = `w${tokenIndex}`
@@ -202,7 +219,8 @@ export function createWords(text: string): DocumentModel {
     if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
     wordsBySentence[sentenceIndex].push(words[words.length - 1])
 
-    if (SENTENCE_END.test(raw)) sentenceIndex++
+    const nextRaw = tokens[i + 1]?.raw
+    if (isSentenceEnd(raw, nextRaw)) sentenceIndex++
     tokenIndex++
   }
 
@@ -265,7 +283,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
     metaById.set(id, { isStop, isPunct })
     if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
     wordsBySentence[sentenceIndex].push(words[words.length - 1])
-    if (SENTENCE_END.test(raw)) sentenceIndex++
+    if (isSentenceEnd(raw)) sentenceIndex++
     tokenIndex++
   }
 
@@ -350,6 +368,40 @@ export function createWordsMarkdown(text: string): DocumentModel {
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
   return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+}
+
+function isSentenceEnd(raw: string, nextRaw?: string): boolean {
+  if (!SENTENCE_END.test(raw)) return false
+  if (SENTENCE_SKIP.test(raw)) return false
+
+  const cleaned = stripTrailingQuotes(raw)
+  if (isAbbreviation(cleaned)) return false
+
+  if (nextRaw) {
+    const starter = stripLeadingQuotes(nextRaw)
+    if (/^[a-z]/.test(starter)) return false
+  }
+
+  return true
+}
+
+function stripTrailingQuotes(raw: string): string {
+  return raw.replace(/["'”’\)\]]+$/g, '')
+}
+
+function stripLeadingQuotes(raw: string): string {
+  return raw.replace(/^["'“”‘’\(\[]+/, '')
+}
+
+function isAbbreviation(raw: string): boolean {
+  if (!raw.endsWith('.')) return false
+  const normalized = raw.replace(/[^a-zA-Z.]/g, '')
+  const trimmed = normalized.replace(/\.+$/g, '')
+  if (!trimmed) return false
+  if (trimmed.length <= 2) return true
+  if (ABBREVIATIONS.has(trimmed.toLowerCase())) return true
+  if (/^(?:[a-zA-Z]\.){2,}$/.test(normalized)) return true
+  return false
 }
 
 type InlineStyle = {

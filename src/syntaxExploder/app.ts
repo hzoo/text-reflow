@@ -565,8 +565,17 @@ export function start(root: HTMLElement) {
   })
 
   function toggleViewMode() {
-    viewMode$.value = viewMode$.value === 'full' ? 'paragraph' : 'full'
-    currentPara$.value = 0
+    const nextMode = viewMode$.value === 'full' ? 'paragraph' : 'full'
+    const savedSentence = sentence$.value
+    const savedPara = currentPara$.value
+    viewMode$.value = nextMode
+    currentPara$.value = nextMode === 'full' ? 0 : savedPara
+
+    if (savedSentence != null) {
+      requestAnimationFrame(() => {
+        engine.setSentence(savedSentence)
+      })
+    }
   }
 
   viewToggle.addEventListener('click', () => {

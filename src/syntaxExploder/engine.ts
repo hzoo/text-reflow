@@ -144,9 +144,20 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const words = model.words
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
+      const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
+      const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+      let font = fontCache.get(fontKey)
+      if (!font) {
+        const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
+        const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
+        font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
+        fontCache.set(fontKey, font)
+      }
+      ctx.font = font
       const width = ctx.measureText(w.displayText).width
       w.pixelWidth = width
     }
+    ctx.font = fontString
   }
 
   /** Get words for a specific sentence */
@@ -580,6 +591,18 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     invalidate()
   }
 
+  function setSentence(index: number | null) {
+    if (index === null) {
+      hoveredSentence = null
+    } else {
+      hoveredSentence = Math.max(0, Math.min(model.sentenceCount - 1, index))
+    }
+    updatePanForSentence()
+    if (sentenceOnlyMode) fitCurrentSentence()
+    notifyStateChange()
+    invalidate()
+  }
+
   function setMaxWidth(w: number) {
     maxContentWidth = Math.max(300, Math.min(1200, w))
     measureFont()
@@ -637,6 +660,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     setBottomReserve,
     autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,
+    setSentence,
     destroy,
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
   }
