@@ -50,7 +50,6 @@ export function start(root: HTMLElement) {
   const viewMode$ = signal<'paragraph' | 'full'>('paragraph')
   const extraOpen$ = signal(false)
   const maxWidth$ = signal(initialMarkdown ? READER_WIDTH : DEFAULT_WIDTH)
-  let pendingSentence: number | null = null
   const moveSpeed$ = signal(1)
   const panSpeed$ = signal(1)
   const focusSpeed$ = signal(1)
@@ -59,6 +58,7 @@ export function start(root: HTMLElement) {
   const beat$ = signal<BeatId>('reader')
   const focusStyle$ = signal<FocusStyleId>('gray')
   const sentence$ = signal<number | null>(0)
+  const globalSentence$ = signal<number | null>(0)
   const sentenceCount$ = signal(1)
   const sentenceOnlyMode$ = signal(false)
 
@@ -81,6 +81,7 @@ export function start(root: HTMLElement) {
   const words$ = computed(() => markdownMode$.value
     ? createWordsMarkdown(currentParaText$.value)
     : createWords(currentParaText$.value))
+  const sentenceCounts$ = computed(() => getSentenceCounts(baseParagraphs$.value, markdownMode$.value))
 
   // ═══════════════════════════════════════════════════════════
   // DOM Setup
@@ -213,7 +214,13 @@ export function start(root: HTMLElement) {
 
   // Reinit engine when paragraph changes
   effect(() => {
-    const savedSentence = pendingSentence ?? untracked(() => sentence$.value)
+    const savedSentence = untracked(() => {
+      const global = globalSentence$.value
+      if (global == null) return null
+      if (viewMode$.value === 'full') return global
+      const mapping = mapSentenceToParagraph(global, sentenceCounts$.value)
+      return mapping.localSentence
+    })
     void currentParaText$.value // subscribe
     initEngine()
     if (savedSentence != null) {
@@ -221,7 +228,24 @@ export function start(root: HTMLElement) {
         engine.setSentence(savedSentence)
       })
     }
-    pendingSentence = null
+  })
+
+  // Keep global sentence index in sync with engine state
+  effect(() => {
+    const localSentence = sentence$.value
+    if (localSentence == null) {
+      globalSentence$.value = null
+      return
+    }
+    const view = untracked(() => viewMode$.value)
+    if (view === 'full') {
+      globalSentence$.value = localSentence
+      return
+    }
+    const paraIndex = untracked(() => currentPara$.value)
+    const counts = untracked(() => sentenceCounts$.value)
+    const offset = getSentenceOffset(counts, paraIndex)
+    globalSentence$.value = offset + localSentence
   })
 
   // ═══════════════════════════════════════════════════════════
@@ -577,22 +601,14 @@ export function start(root: HTMLElement) {
 
   function toggleViewMode() {
     const nextMode = viewMode$.value === 'full' ? 'paragraph' : 'full'
-    const currentSentence = sentence$.value
-    const counts = getSentenceCounts(baseParagraphs$.value, markdownMode$.value)
+    const counts = sentenceCounts$.value
+    const global = globalSentence$.value
     let nextParaIndex = currentPara$.value
 
-    if (currentSentence != null) {
-      if (nextMode === 'full') {
-        const offset = counts.slice(0, nextParaIndex).reduce((sum: number, n: number) => sum + n, 0)
-        pendingSentence = offset + currentSentence
-        nextParaIndex = 0
-      } else {
-        const mapping = mapSentenceToParagraph(currentSentence, counts)
-        nextParaIndex = mapping.paragraphIndex
-        pendingSentence = mapping.localSentence
-      }
-    } else if (nextMode === 'full') {
+    if (nextMode === 'full') {
       nextParaIndex = 0
+    } else if (global != null) {
+      nextParaIndex = mapSentenceToParagraph(global, counts).paragraphIndex
     }
 
     batch(() => {
@@ -700,20 +716,30 @@ export function start(root: HTMLElement) {
   // Expose for debugging
   ;(window as any).syntaxExploder = { engine, paragraphs$, currentPara$, BEATS }
 }
-  function getSentenceCounts(paragraphs: string[], useMarkdown: boolean): number[] {
-    const create = useMarkdown ? createWordsMarkdown : createWords
-    return paragraphs.map((paragraph) => create(paragraph).sentenceCount)
-  }
 
-  function mapSentenceToParagraph(sentenceIndex: number, counts: number[]): { paragraphIndex: number; localSentence: number } {
-    let offset = 0
-    for (let i = 0; i < counts.length; i++) {
-      const count = counts[i]
-      if (sentenceIndex < offset + count) {
-        return { paragraphIndex: i, localSentence: sentenceIndex - offset }
-      }
-      offset += count
-    }
-    const lastIndex = Math.max(0, counts.length - 1)
-    return { paragraphIndex: lastIndex, localSentence: Math.max(0, counts[lastIndex] - 1) }
+function getSentenceCounts(paragraphs: string[], useMarkdown: boolean): number[] {
+  const create = useMarkdown ? createWordsMarkdown : createWords
+  return paragraphs.map((paragraph) => create(paragraph).sentenceCount)
+}
+
+function getSentenceOffset(counts: number[], paragraphIndex: number): number {
+  let offset = 0
+  for (let i = 0; i < paragraphIndex; i++) offset += counts[i] || 0
+  return offset
+}
+
+function mapSentenceToParagraph(sentenceIndex: number, counts: number[]): { paragraphIndex: number; localSentence: number } {
+  if (counts.length === 0) {
+    return { paragraphIndex: 0, localSentence: 0 }
   }
+  let offset = 0
+  for (let i = 0; i < counts.length; i++) {
+    const count = counts[i]
+    if (sentenceIndex < offset + count) {
+      return { paragraphIndex: i, localSentence: sentenceIndex - offset }
+    }
+    offset += count
+  }
+  const lastIndex = Math.max(0, counts.length - 1)
+  return { paragraphIndex: lastIndex, localSentence: Math.max(0, (counts[lastIndex] || 1) - 1) }
+}
