@@ -1,5 +1,5 @@
 import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
-import { createRenderer } from './engine-render'
+import { createRenderer, type CanvasTheme } from './engine-render'
 import type { DocumentModel, Word } from './model'
 
 type ImageCacheEntry = {
@@ -28,6 +28,32 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   let focusStyle: FocusStyleId = 'gray'
 
   let hoveredSentence: number | null = null
+
+  const lightTheme: CanvasTheme = {
+    text: '#111',
+    link: '#1a5fb4',
+    redacted: 'rgba(0, 0, 0, 0.1)',
+    imageBg: '#f1f1f1',
+    imageBorder: '#c9c9c9',
+    imageText: '#666',
+  }
+
+  const darkTheme: CanvasTheme = {
+    text: '#f5f2eb',
+    link: '#86b7ff',
+    redacted: 'rgba(255, 255, 255, 0.12)',
+    imageBg: '#1b1c1f',
+    imageBorder: '#3a3d44',
+    imageText: '#c3c7cf',
+  }
+
+  const theme = { ...lightTheme }
+  const colorSchemeQuery = window.matchMedia?.('(prefers-color-scheme: dark)') ?? null
+  const applyTheme = () => {
+    Object.assign(theme, colorSchemeQuery?.matches ? darkTheme : lightTheme)
+    invalidate()
+  }
+  const handleColorSchemeChange = () => applyTheme()
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
   let maxContentWidth = maxWidthOverride ?? 800
@@ -253,6 +279,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     get fontSize() { return fontSize },
     get hoveredSentence() { return hoveredSentence },
     get focusStyle() { return focusStyle },
+    theme,
   })
 
   /** Calculate content bounds for given words */
@@ -516,6 +543,9 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   canvas.addEventListener('mousemove', onMouseMove)
   canvas.addEventListener('click', onClick)
   window.addEventListener('resize', onResize)
+  if (colorSchemeQuery) {
+    colorSchemeQuery.addEventListener('change', handleColorSchemeChange)
+  }
 
   let last = performance.now()
   function frame(now: number) {
@@ -532,7 +562,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
 
     clear()
     ctx.font = fontString
-    ctx.fillStyle = '#111'
+    ctx.fillStyle = theme.text
     ctx.globalAlpha = 1
 
     // In sentence-only mode, only draw the current sentence
@@ -554,12 +584,12 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
             if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
           }
         } else if (focusStyle === 'redact') {
-          ctx.fillStyle = 'rgba(0,0,0,0.1)'
+          ctx.fillStyle = theme.redacted
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
             if (w.sentenceIndex !== hoveredSentence) drawWordRedactRect(w)
           }
-          ctx.fillStyle = '#111'
+          ctx.fillStyle = theme.text
           for (let i = 0; i < words.length; i++) {
             const w = words[i]
             if (w.sentenceIndex === hoveredSentence) drawWordPlain(w)
@@ -576,6 +606,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   }
 
   function start() {
+    applyTheme()
     applyDPR()
     measureFont()
 
@@ -714,6 +745,9 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     canvas.removeEventListener('mousemove', onMouseMove)
     canvas.removeEventListener('click', onClick)
     window.removeEventListener('resize', onResize)
+    if (colorSchemeQuery) {
+      colorSchemeQuery.removeEventListener('change', handleColorSchemeChange)
+    }
     onStateChange = null
   }
 

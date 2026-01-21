@@ -1,6 +1,15 @@
 import type { FocusStyleId, Metrics } from './experiments'
 import type { DocumentModel, Word } from './model'
 
+export type CanvasTheme = {
+  text: string
+  link: string
+  redacted: string
+  imageBg: string
+  imageBorder: string
+  imageText: string
+}
+
 export type RenderState = {
   ctx: CanvasRenderingContext2D
   model: DocumentModel
@@ -19,6 +28,7 @@ export type RenderState = {
   readonly fontSize: number
   readonly hoveredSentence: number | null
   readonly focusStyle: FocusStyleId
+  theme: CanvasTheme
 }
 
 type WordPos = { x: number; y: number; s: number }
@@ -115,7 +125,7 @@ export function createRenderer(state: RenderState) {
       ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
     }
     const prevFill = ctx.fillStyle
-    if (w.linkUrl) ctx.fillStyle = '#1a5fb4'
+    if (w.linkUrl) ctx.fillStyle = state.theme.link
     ctx.fillText(w.displayText, pos.x, pos.y)
     if (w.linkUrl) {
       const width = ctx.measureText(w.displayText).width
@@ -136,12 +146,12 @@ export function createRenderer(state: RenderState) {
       return
     }
     ctx.save()
-    ctx.fillStyle = '#f1f1f1'
-    ctx.strokeStyle = '#c9c9c9'
+    ctx.fillStyle = state.theme.imageBg
+    ctx.strokeStyle = state.theme.imageBorder
     ctx.lineWidth = 1
     ctx.fillRect(pos.x, pos.y, width, height)
     ctx.strokeRect(pos.x + 0.5, pos.y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1))
-    ctx.fillStyle = '#666'
+    ctx.fillStyle = state.theme.imageText
     const label = entry?.status === 'error'
       ? 'Image failed to load'
       : (w.imageAlt ? `Image: ${w.imageAlt}` : 'Image')
@@ -199,10 +209,10 @@ export function createRenderer(state: RenderState) {
 
     // Redact style: draw rect and return early
     if (isDimmed && state.focusStyle === 'redact') {
-      ctx.fillStyle = 'rgba(0,0,0,0.1)'
+      ctx.fillStyle = state.theme.redacted
       const width = Math.max(1, w.pixelWidth) * pos.s
       ctx.fillRect(pos.x, pos.y + 2 * pos.s, width - 2 * pos.s, metrics.lineH * pos.s - 4 * pos.s)
-      ctx.fillStyle = '#111'
+      ctx.fillStyle = state.theme.text
       return
     }
 
