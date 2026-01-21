@@ -28,6 +28,8 @@ const IDEA_MACHINES_EXCERPT = `Tech as a system of values, and not just an indus
 
 One of the most visible ideologies in tech is effective altruism (or EA), a philanthropic school of thought [that advocates for](https://www.effectivealtruism.org/articles/introduction-to-effective-altruism)_“us[ing] high-quality evidence and careful reasoning to work out how to help others as much as possible.”_. If you don’t buy into its philosophy, it’s easy to write off effective altruism as yet another eccentric subculture. But effective altruism is both less and more interesting than it seems.`
 
+const HEADER_SPACING = `**An Idea Machine is a self-sustaining organism that contains all the parts needed to turn ideas into outcomes:**`
+
 describe('markdownToReadingText', () => {
   test('parses stephango sample', () => {
     const text = markdownToReadingText(SOURCE)
@@ -61,5 +63,11 @@ describe('markdownToReadingText', () => {
     const sentences = text.split(/\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean)
     expect(sentences.length).toBeGreaterThan(2)
     expect(sentences.includes('')).toBe(false)
+  })
+
+  test('inline spacing does not collapse words', () => {
+    const text = markdownToReadingText(HEADER_SPACING)
+    expect(text.includes('Machineis')).toBe(false)
+    expect(text.includes('systems')).toBe(false)
   })
 })

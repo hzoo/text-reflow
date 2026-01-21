@@ -16,10 +16,10 @@ describe('createWords', () => {
     expect(doc.words[2].spaceAfter).toBe(false)
   })
 
-  test('calculates cols including trailing space', () => {
+  test('tracks pixel width placeholder', () => {
     const doc = createWords('hi there')
-    expect(doc.words[0].cols).toBe(3) // 'hi' + space
-    expect(doc.words[1].cols).toBe(5) // 'there' no trailing space
+    expect(doc.words[0].pixelWidth).toBe(0)
+    expect(doc.words[1].pixelWidth).toBe(0)
   })
 
   test('detects sentence boundaries', () => {
@@ -63,8 +63,8 @@ describe('createWords', () => {
   test('initializes animation state to zero', () => {
     const doc = createWords('test words')
     for (const w of doc.words) {
-      expect(w.animCol).toBe(0)
-      expect(w.animRow).toBe(0)
+      expect(w.animX).toBe(0)
+      expect(w.animY).toBe(0)
       expect(w.animScale).toBe(1)
       expect(w.focusDy).toBe(0)
     }

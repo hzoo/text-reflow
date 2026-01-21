@@ -137,13 +137,13 @@ function blockTokensToInlineText(tokens: any[]): string {
 }
 
 function inlineTokensToText(tokens: any): string {
-  if (typeof tokens === 'string') return collapseSpaces(tokens)
+  if (typeof tokens === 'string') return collapseInlineSpaces(tokens)
   if (!Array.isArray(tokens)) return ''
   const parts: string[] = []
   for (const token of tokens) {
     switch (token.type) {
       case 'text':
-        parts.push(token.text || '')
+        parts.push(collapseInlineSpaces(token.text || ''))
         break
       case 'strong': {
         const inner = inlineTokensToText(token.tokens || token.text || [])
@@ -159,7 +159,7 @@ function inlineTokensToText(tokens: any): string {
         parts.push(inlineTokensToText(token.tokens || token.text || []))
         break
       case 'codespan':
-        parts.push(token.text || '')
+        parts.push(collapseInlineSpaces(token.text || ''))
         break
       case 'link': {
         const label = inlineTokensToText(token.tokens || token.text || []) || token.text || ''
@@ -181,10 +181,14 @@ function inlineTokensToText(tokens: any): string {
         break
     }
   }
-  return collapseSpaces(parts.join(' '))
+  return collapseInlineSpaces(parts.join(' '))
 }
 
 function collapseSpaces(value: string): string {
   const noBreaks = value.replace(/[\t\f\r ]+/g, ' ').replace(/\s+([.,;:!?])/g, '$1')
   return noBreaks.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function collapseInlineSpaces(value: string): string {
+  return value.replace(/[\t\f\r ]+/g, ' ').replace(/\s+([.,;:!?])/g, '$1')
 }

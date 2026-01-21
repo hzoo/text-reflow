@@ -134,7 +134,7 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const words = model.words
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
-      if (w.targetRow > maxRow) maxRow = w.targetRow
+      if (w.targetY > maxRow) maxRow = w.targetY
     }
     const blockH = (maxRow + 1) * metrics.lineH
     metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
@@ -146,9 +146,6 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
       const w = words[i]
       const width = ctx.measureText(w.displayText).width
       w.pixelWidth = width
-      if (!pixelLayout) {
-        w.cols = Math.max(1, Math.ceil(width / metrics.charW))
-      }
     }
   }
 
@@ -176,24 +173,24 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
   })
 
   /** Calculate content bounds for given words */
-  function getContentBounds(words: Word[]): { maxRow: number; maxCol: number } {
+  function getContentBounds(words: Word[]): { maxRow: number; maxX: number } {
     let maxRow = 0
-    let maxCol = 0
+    let maxX = 0
     for (const w of words) {
-      if (w.targetRow > maxRow) maxRow = w.targetRow
-      if (w.targetCol + w.cols > maxCol) maxCol = w.targetCol + w.cols
+      if (w.targetY > maxRow) maxRow = w.targetY
+      const endX = w.targetX + w.pixelWidth
+      if (endX > maxX) maxX = endX
     }
-    return { maxRow, maxCol }
+    return { maxRow, maxX }
   }
 
   /** Check if content fits in available space */
   function contentFits(words: Word[]): boolean {
     const availableHeight = window.innerHeight - bottomReserve - 32
     const availableWidth = window.innerWidth - 32
-    const { maxRow } = getContentBounds(words)
+    const { maxRow, maxX } = getContentBounds(words)
     const contentHeight = (maxRow + 1) * metrics.lineH + 32
-    const contentWidth = metrics.maxCols * metrics.charW
-    return contentHeight <= availableHeight && contentWidth <= availableWidth
+    return contentHeight <= availableHeight && maxX <= availableWidth
   }
 
   /** Auto-fit font size. Returns true if paragraph fits, false if switched to sentence-only mode */
@@ -284,8 +281,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
       const w = words[i]
       const t = targets.get(w.id)
       if (!t) continue
-      w.targetCol = t.col
-      w.targetRow = t.row
+      w.targetX = t.col
+      w.targetY = t.row
     }
   }
 
@@ -297,12 +294,12 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     const words = model.words
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
-      const dCol = w.targetCol - w.animCol
-      const dRow = w.targetRow - w.animRow
+      const dCol = w.targetX - w.animX
+      const dRow = w.targetY - w.animY
       const dScale = w.targetScale - w.animScale
       if (Math.abs(dCol) > EPS || Math.abs(dRow) > EPS || Math.abs(dScale) > EPS) active = true
-      w.animCol += dCol * k
-      w.animRow += dRow * k
+      w.animX += dCol * k
+      w.animY += dRow * k
       w.animScale += dScale * k
     }
 
@@ -337,19 +334,19 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     }
     if (startIdx === -1 || endIdx === -1) return
 
+    const paragraphId = words[startIdx].paragraphIndex
     let paraStart = startIdx
-    for (let i = startIdx - 1; i >= 0; i--) {
-      if (words[i].breakAfter) {
+    let paraEnd = endIdx
+    for (let i = startIdx; i >= 0; i--) {
+      if (words[i].paragraphIndex !== paragraphId) {
         paraStart = i + 1
         break
       }
       if (i === 0) paraStart = 0
     }
-
-    let paraEnd = endIdx
     for (let i = endIdx; i < words.length; i++) {
-      if (words[i].breakAfter) {
-        paraEnd = i
+      if (words[i].paragraphIndex !== paragraphId) {
+        paraEnd = i - 1
         break
       }
       if (i === words.length - 1) paraEnd = words.length - 1
@@ -359,23 +356,17 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     let maxRow = -Infinity
     for (let i = paraStart; i <= paraEnd; i++) {
       const w = words[i]
-      minRow = Math.min(minRow, w.targetRow)
-      maxRow = Math.max(maxRow, w.targetRow)
+      minRow = Math.min(minRow, w.targetY)
+      maxRow = Math.max(maxRow, w.targetY)
     }
 
     const top = metrics.padY + minRow * metrics.lineH + panY
     const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
     const viewportTop = 16
     const viewportBottom = window.innerHeight - bottomReserve - 16
-    const viewportHeight = Math.max(1, viewportBottom - viewportTop)
-    const bandTop = viewportTop + viewportHeight * 0.15
-    const bandBottom = viewportBottom - viewportHeight * 0.15
     const centerY = (viewportTop + viewportBottom) / 2
     const midY = (top + bottom) / 2
-
-    if (midY < bandTop || midY > bandBottom) {
-      panY += centerY - midY
-    }
+    panY += centerY - midY
   }
 
   function sentenceYOffset(sentenceIndex: number): number {
@@ -508,8 +499,8 @@ export function createEngine({ canvas, words: model, fontFamily: fontOverride, m
     animPadX = metrics.padX
     animPanY = panY
     for (const w of model.words) {
-      w.animCol = w.targetCol
-      w.animRow = w.targetRow
+      w.animX = w.targetX
+      w.animY = w.targetY
       w.animScale = w.targetScale
     }
 

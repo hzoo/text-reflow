@@ -5,27 +5,27 @@ export type Word = {
   text: string
   displayText: string
   spaceAfter: boolean
-  cols: number
   baseScale: number
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
   linkUrl?: string
   breakAfter: boolean
   breakAfterRows: number
+  paragraphIndex: number
+  pixelWidth: number
 
   // layout targets
-  targetCol: number
-  targetRow: number
+  targetX: number
+  targetY: number
 
   // animated state
-  animCol: number
-  animRow: number
+  animX: number
+  animY: number
 
   // focus deformation
   focusDy: number
   targetScale: number
   animScale: number
-  pixelWidth: number
 }
 
 const STOPWORDS = new Set([
@@ -181,17 +181,17 @@ export function createWords(text: string): DocumentModel {
       text: raw,
       displayText,
       spaceAfter,
-      cols: displayText.length,
       baseScale: 1,
       fontStyle: 'normal',
       fontWeight: 'normal',
       linkUrl,
       breakAfter,
       breakAfterRows,
-      targetCol: 0,
-      targetRow: 0,
-      animCol: 0,
-      animRow: 0,
+      paragraphIndex: 0,
+      targetX: 0,
+      targetY: 0,
+      animX: 0,
+      animY: 0,
       focusDy: 0,
       targetScale: 1,
       animScale: 1,
@@ -245,17 +245,17 @@ export function createWordsMarkdown(text: string): DocumentModel {
       text: raw,
       displayText,
       spaceAfter,
-      cols: Math.max(1, Math.round(displayText.length * baseScale)),
       baseScale,
       fontStyle: inline.fontStyle,
       fontWeight: inline.fontWeight,
       linkUrl,
       breakAfter: false,
       breakAfterRows: 0,
-      targetCol: 0,
-      targetRow: 0,
-      animCol: 0,
-      animRow: 0,
+      paragraphIndex: 0,
+      targetX: 0,
+      targetY: 0,
+      animX: 0,
+      animY: 0,
       focusDy: 0,
       targetScale: 1,
       animScale: 1,
@@ -291,12 +291,13 @@ export function createWordsMarkdown(text: string): DocumentModel {
     if (prev && !prev.spaceAfter) {
       prev.spaceAfter = true
       prev.displayText = `${prev.text} `
-      prev.cols = Math.max(1, Math.round(prev.displayText.length * prev.baseScale))
+      prev.pixelWidth = Math.max(1, prev.displayText.length * prev.baseScale)
     }
     return text.replace(/^\s+/, '')
   }
 
   const lines = text.split(/\n/)
+  let paragraphIndex = 0
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) {
@@ -305,6 +306,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
         prev.breakAfter = true
         prev.breakAfterRows = Math.max(prev.breakAfterRows, 2)
       }
+      paragraphIndex++
       continue
     }
     const lineWordStart = words.length
@@ -339,6 +341,10 @@ export function createWordsMarkdown(text: string): DocumentModel {
     if (prev && words.length > lineWordStart) {
       prev.breakAfter = true
       prev.breakAfterRows = Math.max(prev.breakAfterRows, breakRows)
+    }
+
+    for (let i = lineWordStart; i < words.length; i++) {
+      words[i].paragraphIndex = paragraphIndex
     }
   }
 

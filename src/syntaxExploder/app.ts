@@ -380,10 +380,27 @@ export function start(root: HTMLElement) {
     const plain = stripInlineMarkers(raw)
     const mode = markdownMode$.value ? 'markdown' : 'plain'
     const view = viewMode$.value
+    const sentenceId = sentence$.value
+    let paraId = 0
+    let paraRange = '—'
+    if (sentenceId !== null) {
+      const words = words$.value.words
+      const word = words.find((w) => w.sentenceIndex === sentenceId)
+      if (word) paraId = word.paragraphIndex
+      const matches = words.filter((w) => w.paragraphIndex === paraId)
+      if (matches.length > 0) {
+        const minRow = Math.min(...matches.map((w) => w.targetY))
+        const maxRow = Math.max(...matches.map((w) => w.targetY))
+        paraRange = `${minRow}-${maxRow}`
+      }
+    }
     debugPanel.innerHTML = `
       <div><strong>mode</strong> ${mode}</div>
       <div><strong>view</strong> ${view}</div>
       <div><strong>para</strong> ${idx + 1}/${paras.length}</div>
+      <div><strong>sent</strong> ${sentenceId ?? '—'}</div>
+      <div><strong>pid</strong> ${paraId}</div>
+      <div><strong>rows</strong> ${paraRange}</div>
       <div><strong>raw</strong> ${raw.replace(/\n/g, ' ')}</div>
       <div><strong>plain</strong> ${plain.replace(/\n/g, ' ')}</div>
     `

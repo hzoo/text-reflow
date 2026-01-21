@@ -36,27 +36,27 @@ export function createRenderer(state: RenderState) {
     return next
   }
 
-  function getSentenceCenter(sentenceIndex: number): { centerCol: number; centerRow: number } {
+  function getSentenceCenter(sentenceIndex: number): { centerX: number; centerRow: number } {
     const cached = state.sentenceCenterCache.get(sentenceIndex)
-    if (cached) return cached
+    if (cached) return { centerX: cached.centerCol, centerRow: cached.centerRow }
 
-    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity
+    let minX = Infinity, maxX = -Infinity, minRow = Infinity, maxRow = -Infinity
     const words = state.getSentenceWords(sentenceIndex)
     for (let i = 0; i < words.length; i++) {
       const other = words[i]
-      minCol = Math.min(minCol, other.targetCol)
-      maxCol = Math.max(maxCol, other.targetCol + other.cols)
-      minRow = Math.min(minRow, other.targetRow)
-      maxRow = Math.max(maxRow, other.targetRow + 1)
+      minX = Math.min(minX, other.targetX)
+      maxX = Math.max(maxX, other.targetX + other.pixelWidth)
+      minRow = Math.min(minRow, other.targetY)
+      maxRow = Math.max(maxRow, other.targetY + 1)
     }
     if (words.length === 0) {
-      return { centerCol: 0, centerRow: 0 }
+      return { centerX: 0, centerRow: 0 }
     }
     const result = {
-      centerCol: (minCol + maxCol) / 2,
+      centerX: (minX + maxX) / 2,
       centerRow: (minRow + maxRow) / 2,
     }
-    state.sentenceCenterCache.set(sentenceIndex, result)
+    state.sentenceCenterCache.set(sentenceIndex, { centerCol: result.centerX, centerRow: result.centerRow })
     return result
   }
 
@@ -64,18 +64,18 @@ export function createRenderer(state: RenderState) {
     const s = w.animScale * w.baseScale
 
     // Base position (unscaled)
-    const baseX = state.animPadX + w.animCol * metrics.charW
-    const baseY = state.animPadY + state.animPanY + w.animRow * metrics.lineH + w.focusDy
+    const baseX = state.animPadX + w.animX
+    const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
 
     let x = baseX
     let y = baseY
 
     // For magnified words, zoom from the sentence center
     if (s > state.scaleEps) {
-      const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-      const centerX = state.animPadX + centerCol * metrics.charW
+      const { centerX, centerRow } = getSentenceCenter(w.sentenceIndex)
+      const centerXPos = state.animPadX + centerX
       const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
-      x = centerX + (baseX - centerX) * s
+      x = centerXPos + (baseX - centerXPos) * s
       y = centerY + (baseY - centerY) * s
     }
     return { x, y, s }
@@ -116,10 +116,11 @@ export function createRenderer(state: RenderState) {
   function drawWordRedactRect(w: Word) {
     const pos = computeWordPosition(w)
     if (!isWordVisible(pos)) return
+    const width = Math.max(1, w.pixelWidth) * pos.s
     ctx.fillRect(
       pos.x,
       pos.y + 2 * pos.s,
-      w.cols * metrics.charW * pos.s - 2 * pos.s,
+      width - 2 * pos.s,
       metrics.lineH * pos.s - 4 * pos.s
     )
   }
@@ -135,7 +136,8 @@ export function createRenderer(state: RenderState) {
     // Redact style: draw rect and return early
     if (isDimmed && state.focusStyle === 'redact') {
       ctx.fillStyle = 'rgba(0,0,0,0.1)'
-      ctx.fillRect(pos.x, pos.y + 2 * pos.s, w.cols * metrics.charW * pos.s - 2 * pos.s, metrics.lineH * pos.s - 4 * pos.s)
+      const width = Math.max(1, w.pixelWidth) * pos.s
+      ctx.fillRect(pos.x, pos.y + 2 * pos.s, width - 2 * pos.s, metrics.lineH * pos.s - 4 * pos.s)
       ctx.fillStyle = '#111'
       return
     }
@@ -172,20 +174,20 @@ export function createRenderer(state: RenderState) {
       const s = w.animScale * w.baseScale
 
       // Base position (unscaled)
-      const baseX = state.animPadX + w.animCol * metrics.charW
-    const baseY = state.animPadY + state.animPanY + w.animRow * metrics.lineH + w.focusDy
+      const baseX = state.animPadX + w.animX
+    const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
 
       let x = baseX
       let y = baseY
-      let width = Math.max(1, w.cols) * metrics.charW
+      let width = Math.max(1, w.pixelWidth)
       let height = metrics.lineH
 
       // For magnified words, compute actual position from center zoom
       if (s > state.scaleEps) {
-        const { centerCol, centerRow } = getSentenceCenter(w.sentenceIndex)
-        const centerX = state.animPadX + centerCol * metrics.charW
+        const { centerX, centerRow } = getSentenceCenter(w.sentenceIndex)
+        const centerXPos = state.animPadX + centerX
         const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
-        x = centerX + (baseX - centerX) * s
+        x = centerXPos + (baseX - centerXPos) * s
         y = centerY + (baseY - centerY) * s
         width *= s
         height *= s
