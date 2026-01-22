@@ -192,7 +192,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const EPS = 0.001
   const LN_0_0001 = Math.log(0.0003)
   const LN_0_001 = Math.log(0.002)
-  const LN_0_01 = Math.log(0.002)
   let animPadY = 24
   let animPadX = 24
   let panY = 0
