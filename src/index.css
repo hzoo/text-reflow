@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/* Light mode colors (default) */
+:root {
+  --color-bg: #faf7f0;
+  --color-fg: #1a1a1a;
+  --color-hud-bg: rgba(255, 252, 247, 0.95);
+  --color-hud-border: rgba(0, 0, 0, 0.08);
+  --color-btn-bg: rgba(0, 0, 0, 0.04);
+  --color-btn-hover: rgba(0, 0, 0, 0.08);
+  --color-btn-active: rgba(0, 0, 0, 0.12);
+  --color-accent: #1a1a1a;
+  --color-muted: rgba(0, 0, 0, 0.7);
+  --color-hint: rgba(0, 0, 0, 0.5);
+  --shadow-hud: 0 2px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Dark mode colors */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111317;
+    --color-fg: #f5f2eb;
+    --color-hud-bg: rgba(18, 20, 23, 0.96);
+    --color-hud-border: rgba(255, 255, 255, 0.12);
+    --color-btn-bg: rgba(255, 255, 255, 0.08);
+    --color-btn-hover: rgba(255, 255, 255, 0.14);
+    --color-btn-active: rgba(255, 255, 255, 0.2);
+    --color-accent: #f5f2eb;
+    --color-muted: rgba(255, 255, 255, 0.55);
+    --color-hint: rgba(255, 255, 255, 0.35);
+    --shadow-hud: 0 2px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-inset: inset 0 1px 2px rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* Custom utility classes using CSS variables */
+@utility bg-hud-bg {
+  background-color: var(--color-hud-bg);
+}
+@utility bg-btn-bg {
+  background-color: var(--color-btn-bg);
+}
+@utility bg-btn-hover {
+  background-color: var(--color-btn-hover);
+}
+@utility bg-btn-active {
+  background-color: var(--color-btn-active);
+}
+@utility border-hud-border {
+  border-color: var(--color-hud-border);
+}
+@utility text-accent {
+  color: var(--color-accent);
+}
+@utility text-muted {
+  color: var(--color-muted);
+}
+@utility text-hint {
+  color: var(--color-hint);
+}
+@utility stroke-accent {
+  stroke: var(--color-accent);
+}
+@utility shadow-hud {
+  box-shadow: var(--shadow-hud);
+}
+@utility shadow-inset {
+  box-shadow: var(--shadow-inset);
+}
+
+/* Base styles */
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+#app {
+  height: 100%;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
