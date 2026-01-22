@@ -75,6 +75,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const handleColorSchemeChange = () => applyTheme()
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
+  let onLayout: (() => void) | null = null
+  let lastLayoutNotify = 0
+  const LAYOUT_NOTIFY_THROTTLE = 200 // ms
   let maxContentWidth = maxWidthOverride ?? 800
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
@@ -90,6 +93,28 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   // Cached font string to avoid allocation in hot loop
   let fontString = ''
   const fontCache = new Map<string, string>()
+
+  // Word width cache: keyed by `fontKey|displayText`
+  const wordWidthCache = new Map<string, number>()
+
+  // Performance timing metrics (exposed for HUD)
+  // Rolling average over last N samples
+  const PERF_WINDOW = 10
+  const perfSamples = {
+    updateWordColsMs: [] as number[],
+    applyScopeMs: [] as number[],
+    layoutMs: [] as number[],
+  }
+  function addPerfSample(key: keyof typeof perfSamples, value: number) {
+    const arr = perfSamples[key]
+    arr.push(value)
+    if (arr.length > PERF_WINDOW) arr.shift()
+  }
+  function getPerfAvg(key: keyof typeof perfSamples): number {
+    const arr = perfSamples[key]
+    if (arr.length === 0) return 0
+    return arr.reduce((a, b) => a + b, 0) / arr.length
+  }
 
   // Cached sentence centers for magnify mode
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
@@ -190,6 +215,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontString = `${fontSize}px ${fontFamily}`
     ctx.font = fontString
     fontCache.clear()
+    wordWidthCache.clear() // Clear width cache on font change
     fontCache.set(`normal|normal|${fontSize}`, fontString)
 
     const sample = 'abcdefghijklmnopqrstuvwxyz'
@@ -229,6 +255,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function updateWordCols() {
+    const t0 = performance.now()
     const words = model.words
     const blockW = metrics.maxCols * metrics.charW
     const fallbackW = Math.max(1, Math.min(blockW, 360))
@@ -253,6 +280,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
       const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
       const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+
+      // Check word width cache first
+      const cacheKey = `${fontKey}|${w.displayText}`
+      const cached = wordWidthCache.get(cacheKey)
+      if (cached !== undefined) {
+        w.pixelWidth = cached
+        continue
+      }
+
+      // Cache miss: measure and store
       let font = fontCache.get(fontKey)
       if (!font) {
         const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
@@ -263,11 +300,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       ctx.font = font
       const width = ctx.measureText(w.displayText).width
       w.pixelWidth = width
+      wordWidthCache.set(cacheKey, width)
     }
     ctx.font = fontString
+    addPerfSample('updateWordColsMs', performance.now() - t0)
   }
 
   function applyScope(nextScope: LayoutScope) {
+    const t0 = performance.now()
     scope = nextScope
     if (scope.mode === 'full') {
       sentenceOffset = 0
@@ -279,7 +319,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       sentenceOffset = scope.sentenceOffset
       sentenceCountInScope = scope.sentenceCount
       paragraphBreakRows = 0
-      visibleWords = model.words.filter((w) => w.paragraphIndex === paragraphIndex)
+      // O(1) lookup via precomputed wordsByParagraph
+      visibleWords = model.wordsByParagraph[paragraphIndex] || []
     }
 
     if (sentenceCountInScope <= 0) {
@@ -289,6 +330,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     sentenceCenterCache.clear()
+    addPerfSample('applyScopeMs', performance.now() - t0)
   }
 
   /** Get words for a specific sentence */
@@ -415,6 +457,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function layoutCurrentBeat(invalidateLayout = true) {
+    const t0 = performance.now()
     measureFont()
     updateWordCols()
     const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
@@ -423,6 +466,13 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Re-measure after layout to update vertical padding
     measureFont()
     updatePanForSentence()
+    addPerfSample('layoutMs', performance.now() - t0)
+    // Throttle layout notifications for debug panel
+    const now = performance.now()
+    if (now - lastLayoutNotify > LAYOUT_NOTIFY_THROTTLE) {
+      lastLayoutNotify = now
+      onLayout?.()
+    }
     if (invalidateLayout) invalidate()
   }
 
@@ -920,6 +970,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     setModel,
     commit,
     destroy,
+    getPerfMetrics: () => ({
+      updateWordColsMs: getPerfAvg('updateWordColsMs'),
+      applyScopeMs: getPerfAvg('applyScopeMs'),
+      layoutMs: getPerfAvg('layoutMs'),
+    }),
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
+    set onLayout(fn: typeof onLayout) { onLayout = fn },
   }
 }

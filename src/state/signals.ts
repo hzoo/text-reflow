@@ -48,6 +48,7 @@ export const sentence$ = signal<number | null>(0)
 export const globalSentence$ = signal<number | null>(null)
 export const sentenceCount$ = signal(1)
 export const sentenceOnlyMode$ = signal(false)
+export const layoutVersion$ = signal(0) // Bumped on layout for debug panel refresh
 
 // Derived signals
 export const fullText$ = computed(() =>

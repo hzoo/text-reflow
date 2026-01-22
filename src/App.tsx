@@ -26,6 +26,7 @@ import {
   globalSentence$,
   sentenceCount$,
   sentenceOnlyMode$,
+  layoutVersion$,
   paragraphs$,
   baseParagraphs$,
   document$,
@@ -71,6 +72,10 @@ export function App({ canvas }: AppProps) {
         sentenceCount$.value = total
         sentenceOnlyMode$.value = sOnly
       })
+    }
+
+    engine.onLayout = () => {
+      layoutVersion$.value++
     }
 
     engineRef.current = engine
@@ -278,6 +283,7 @@ export function App({ canvas }: AppProps) {
 
   // Debug panel data
   const debugData = useComputed(() => {
+    void layoutVersion$.value // Force re-eval on layout
     const source = text$.value || ''
     const normalized = stripJinaPreamble(source)
     const baseParas = baseParagraphs$.value
@@ -305,6 +311,8 @@ export function App({ canvas }: AppProps) {
       }
     }
 
+    const perfMetrics = engineRef.current?.getPerfMetrics()
+
     return {
       mode: markdownMode$.value ? 'markdown' : 'plain',
       view: viewMode$.value,
@@ -326,6 +334,7 @@ export function App({ canvas }: AppProps) {
       plain,
       headings,
       listItems,
+      perfMetrics,
     }
   })
 

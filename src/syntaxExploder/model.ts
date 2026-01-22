@@ -130,6 +130,7 @@ export type DocumentModel = {
   metaById: Map<string, WordMeta>
   sentenceCount: number
   wordsBySentence: Word[][]
+  wordsByParagraph: Word[][]
 }
 
 export const SAMPLE_TEXTS = {
@@ -286,7 +287,10 @@ export function createWords(text: string): DocumentModel {
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
 
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+  // Single paragraph → all words in paragraph 0
+  const wordsByParagraph: Word[][] = [words]
+
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
 }
 
 export function createDocumentFromParagraphs(paragraphs: string[], useMarkdown: boolean): DocumentModel {
@@ -335,7 +339,15 @@ export function createDocumentFromParagraphs(paragraphs: string[], useMarkdown: 
   }
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+
+  // Build wordsByParagraph from collected words
+  const wordsByParagraph: Word[][] = []
+  for (const word of words) {
+    if (!wordsByParagraph[word.paragraphIndex]) wordsByParagraph[word.paragraphIndex] = []
+    wordsByParagraph[word.paragraphIndex].push(word)
+  }
+
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
 }
 
 function extractUrl(raw: string): string | undefined {
@@ -558,7 +570,15 @@ export function createWordsMarkdown(text: string): DocumentModel {
   }
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+
+  // Build wordsByParagraph from collected words
+  const wordsByParagraph: Word[][] = []
+  for (const word of words) {
+    if (!wordsByParagraph[word.paragraphIndex]) wordsByParagraph[word.paragraphIndex] = []
+    wordsByParagraph[word.paragraphIndex].push(word)
+  }
+
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
 }
 
 function isSentenceEnd(raw: string, nextRaw?: string): boolean {
@@ -762,7 +782,11 @@ export function createWordsBible(text: string): DocumentModel {
   }
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence }
+
+  // Single paragraph → all words in paragraph 0
+  const wordsByParagraph: Word[][] = [words]
+
+  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
 }
 
 type InlineStyle = {

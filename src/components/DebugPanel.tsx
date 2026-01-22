@@ -21,6 +21,11 @@ interface DebugPanelProps {
     plain: string
     headings: string[]
     listItems: string[]
+    perfMetrics?: {
+      updateWordColsMs: number
+      applyScopeMs: number
+      layoutMs: number
+    }
   }
 }
 
@@ -52,6 +57,15 @@ export function DebugPanel({ active, data }: DebugPanelProps) {
       <Row label="heads" value={data.headingCount} />
       <Row label="lists" value={data.listCount} />
       <Row label="fn" value={data.footnoteCount} />
+
+      {data.perfMetrics && (
+        <div class="mt-2 pt-2 border-t border-hud-border">
+          <div class="font-semibold text-muted mb-1">perf (ms)</div>
+          <Row label="layout" value={data.perfMetrics.layoutMs.toFixed(2)} />
+          <Row label="wordCol" value={data.perfMetrics.updateWordColsMs.toFixed(2)} />
+          <Row label="scope" value={data.perfMetrics.applyScopeMs.toFixed(2)} />
+        </div>
+      )}
 
       <Block label="source" content={data.source} />
       <Block label="normalized" content={data.normalized} />
