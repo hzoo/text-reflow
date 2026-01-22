@@ -91,6 +91,16 @@ export function App({ canvas }: AppProps) {
       engine.start()
     }
 
+    const stepNextSentence = () => {
+      if (engine.nextSentence() === 'wrap') nextParagraph(engine)
+    }
+
+    const stepPrevSentence = () => {
+      if (engine.prevSentence() === 'wrap') {
+        if (prevParagraph(engine)) engine.goToLastSentence()
+      }
+    }
+
     // Keyboard handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       if (inputMode$.value) return
@@ -99,29 +109,11 @@ export function App({ canvas }: AppProps) {
       if (key === '1') engine.setBeat('reader')
       else if (key === '2') engine.setBeat('ladder')
       // Arrow keys: spatial mapping (Up/Down = paragraphs, Left/Right = sentences)
-      else if (e.key === 'ArrowDown' || key === 'j') {
-        if (nextParagraph(engine)) {
-          if (viewMode$.value === 'full') {
-            const counts = sentenceCounts$.value
-            const offset = getSentenceOffset(counts, currentPara$.value)
-            engine.setSentence(offset)
-          }
-        }
-      } else if (e.key === 'ArrowUp' || key === 'k') {
-        if (prevParagraph(engine)) {
-          if (viewMode$.value === 'full') {
-            const counts = sentenceCounts$.value
-            const offset = getSentenceOffset(counts, currentPara$.value)
-            engine.setSentence(offset)
-          }
-        }
-      } else if (e.key === 'ArrowRight' || key === 'l') {
-        if (engine.nextSentence() === 'wrap') nextParagraph(engine)
-      } else if (e.key === 'ArrowLeft' || key === 'h') {
-        if (engine.prevSentence() === 'wrap') {
-          if (prevParagraph(engine)) engine.goToLastSentence()
-        }
-      } else if (key === 'f') engine.cycleFocusStyle()
+      else if (e.key === 'ArrowDown' || key === 'j') stepNextSentence()
+      else if (e.key === 'ArrowUp' || key === 'k') stepPrevSentence()
+      else if (e.key === 'ArrowRight' || key === 'l') stepNextSentence()
+      else if (e.key === 'ArrowLeft' || key === 'h') stepPrevSentence()
+      else if (key === 'f') engine.cycleFocusStyle()
       else if (key === 'v') toggleViewMode()
       else if (key === 'r') {
         goToParagraph(0)
