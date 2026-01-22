@@ -24,6 +24,9 @@ export function InputPanel({ open, tab, onTabChange, onClose, onLoadUrl, onSubmi
         if (tab === 'url') urlRef.current?.focus()
         else textRef.current?.focus()
       })
+    } else {
+      urlRef.current?.blur()
+      textRef.current?.blur()
     }
   }, [open, tab])
 

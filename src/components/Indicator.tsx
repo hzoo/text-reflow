@@ -34,26 +34,30 @@ export function CenterIndicator({ atEnd }: CenterIndicatorProps) {
         max-sm:bottom-[60px]
       "
     >
+      <div
+        class={`
+          mb-1 text-center text-[10px] text-hint
+          transition-opacity duration-150
+          ${atEnd ? 'opacity-100' : 'opacity-0'}
+        `}
+      >
+        r to restart
+      </div>
       <div class="flex items-center gap-2">
         <div class="text-[10px] text-hint">↑↓</div>
         <div
           class={`
             py-1 px-3
             bg-hud-bg border border-hud-border rounded-full
-            text-[11px] text-accent font-mono tabular-nums
+            text-[11px] text-accent
             backdrop-blur-xl shadow-hud
             ${atEnd ? 'bg-btn-hover' : ''}
           `}
         >
-          {atEnd ? '✓ end' : '—'}
+          {atEnd ? '✓ end' : '•'}
         </div>
         <div class="text-[10px] text-hint">←→</div>
       </div>
-      {atEnd && (
-        <div class="mt-1 text-center text-[10px] text-hint">
-          r to restart
-        </div>
-      )}
     </div>
   )
 }

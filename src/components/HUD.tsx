@@ -20,6 +20,8 @@ interface HUDProps {
   panSpeed: number
   focusSpeed: number
   hidden: boolean
+  inputOpen: boolean
+  onCollapseToggle: () => void
 
   // Callbacks
   onBeatChange: (beat: BeatId) => void
@@ -34,6 +36,7 @@ interface HUDProps {
   onPanSpeedChange: (speed: number) => void
   onFocusSpeedChange: (speed: number) => void
   onInputOpen: () => void
+  onCollapseToggle: () => void
 }
 
 export function HUD({
@@ -49,6 +52,8 @@ export function HUD({
   panSpeed,
   focusSpeed,
   hidden,
+  inputOpen,
+  onCollapseToggle,
   onBeatChange,
   onFocusChange,
   onViewChange,
@@ -63,6 +68,18 @@ export function HUD({
   onInputOpen,
 }: HUDProps) {
   if (hidden && !isMobile()) return null
+  if (hidden && isMobile()) {
+    return (
+      <div class="fixed bottom-0 left-0 right-0 z-10">
+        <button
+          type="button"
+          onClick={onCollapseToggle}
+          class="mx-auto mb-[calc(8px+env(safe-area-inset-bottom))] block h-2 w-10 rounded-full bg-btn-bg shadow-hud"
+          aria-label="Show controls"
+        />
+      </div>
+    )
+  }
 
   return (
     <div
@@ -81,7 +98,12 @@ export function HUD({
       `}
     >
       {/* Mobile handle */}
-      <div class="hidden max-sm:block w-9 h-1 bg-btn-bg rounded-sm mx-auto -mt-1 mb-1" />
+      <button
+        type="button"
+        onClick={onCollapseToggle}
+        class="hidden max-sm:block w-9 h-1 bg-btn-bg rounded-sm mx-auto -mt-1 mb-1"
+        aria-label="Hide controls"
+      />
 
       {/* Row 1: Layout + View */}
       <div class="flex gap-4">
@@ -129,8 +151,15 @@ export function HUD({
 
       {/* Footer */}
       <div class="flex items-center gap-2 pt-1.5 border-t border-hud-border mt-1">
-        <Button onClick={onInputOpen} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs">
-          Text <kbd class="text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-60 max-sm:hidden">I</kbd>
+        <Button
+          onClick={onInputOpen}
+          active={inputOpen}
+          class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs"
+        >
+          {inputOpen ? 'Close' : 'Text'}
+          <kbd class="text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-60 max-sm:hidden">
+            {inputOpen ? 'Esc' : 'I'}
+          </kbd>
         </Button>
         <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto">
           ⋯

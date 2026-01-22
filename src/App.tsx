@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'preact/hooks'
 import { useSignal, useComputed, useSignalEffect, batch, untracked } from '@preact/signals'
 import { HUD } from './components/HUD'
 import { InputPanel } from './components/InputPanel'
-import { ReadIndicator, CenterIndicator } from './components/Indicator'
+import { CenterIndicator } from './components/Indicator'
 import { DebugPanel } from './components/DebugPanel'
 import { createEngine } from './syntaxExploder/engine'
 import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/markdown'
@@ -115,6 +115,11 @@ export function App({ canvas }: AppProps) {
     // Keyboard handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       if (inputMode$.value) return
+      const active = document.activeElement as HTMLElement | null
+      if (active) {
+        const tag = active.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
+      }
 
       const key = e.key.toLowerCase()
       if (key === '1') engine.setBeat('reader')
@@ -262,38 +267,11 @@ export function App({ canvas }: AppProps) {
     globalSentence$.value = offset + localSentence
   })
 
-  // Compute read indicator text
-  const readText = useComputed(() => {
-    const paras = paragraphs$.value
-    const current = currentPara$.value
-    if (viewMode$.value === 'full') return 'Full View'
-    if (paras.length > 1) return `¶ ${current + 1}/${paras.length}`
-    return ''
-  })
-
-  // Compute center indicator
-  const centerText = useComputed(() => {
-    const paraNum = currentPara$.value + 1
-    const paraTotal = paragraphs$.value.length
-    const sentNum = sentence$.value !== null ? sentence$.value + 1 : null
-    const sentTotal = sentenceCount$.value
-    const sOnly = sentenceOnlyMode$.value
-    const isAtEnd = paraNum === paraTotal && sentNum === sentTotal
-
-    if (isAtEnd) return '✓ end · r to restart'
-
-    const parts: string[] = []
-    if (paraTotal > 1) parts.push(`¶${paraNum}/${paraTotal}`)
-    if (sentNum !== null) parts.push(sOnly ? `sentence ${sentNum}/${sentTotal}` : `${sentNum}/${sentTotal}`)
-    return parts.join(' · ')
-  })
-
   const isAtEnd = useComputed(() => {
-    const paraNum = currentPara$.value + 1
-    const paraTotal = paragraphs$.value.length
-    const sentNum = sentence$.value !== null ? sentence$.value + 1 : null
-    const sentTotal = sentenceCount$.value
-    return paraNum === paraTotal && sentNum === sentTotal
+    const total = document$.value.sentenceCount
+    const global = globalSentence$.value
+    if (total <= 0 || global == null) return false
+    return global >= total - 1
   })
 
   // Debug panel data
@@ -416,8 +394,6 @@ export function App({ canvas }: AppProps) {
 
   return (
     <>
-      <ReadIndicator text={readText.value} />
-
       <HUD
         beat={beat$.value}
         focusStyle={focusStyle$.value}
@@ -431,6 +407,8 @@ export function App({ canvas }: AppProps) {
         panSpeed={panSpeed$.value}
         focusSpeed={focusSpeed$.value}
         hidden={hudCollapsed$.value}
+        inputOpen={inputMode$.value}
+        onCollapseToggle={() => { hudCollapsed$.value = !hudCollapsed$.value }}
         onBeatChange={handleBeatChange}
         onFocusChange={handleFocusChange}
         onViewChange={handleViewChange}
@@ -554,6 +532,12 @@ function toggleViewMode() {
 }
 
 function openInput() {
+  if (inputMode$.value) {
+    inputMode$.value = false
+    const active = document.activeElement as HTMLElement | null
+    active?.blur()
+    return
+  }
   inputMode$.value = true
   inputTab$.value = 'url'
 }
