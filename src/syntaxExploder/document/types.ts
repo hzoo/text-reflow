@@ -12,8 +12,8 @@ export type Word = {
   linkUrl: string | null
   imageUrl: string | null
   imageAlt: string | null
-  imageW?: number
-  imageH?: number
+  imageW: number
+  imageH: number
   breakAfter: boolean
   breakAfterRows: number
   paragraphIndex: number

@@ -56,7 +56,7 @@ export function findVisibleRange(
   }
 
   const getWordBottom = (w: Word) => {
-    const height = w.imageH ?? metrics.lineH
+    const height = w.imageH || metrics.lineH
     return getWordTop(w) + height * w.animScale * w.baseScale
   }
 
@@ -128,6 +128,8 @@ export function createRenderer(state: RenderState) {
     return result
   }
 
+  const tmpPos: WordPos = { x: 0, y: 0, s: 1 }
+
   function computeWordPosition(w: Word): WordPos {
     const s = w.animScale * w.baseScale
 
@@ -146,15 +148,18 @@ export function createRenderer(state: RenderState) {
       x = centerXPos + (baseX - centerXPos) * s
       y = centerY + (baseY - centerY) * s
     }
-    return { x, y, s }
+    tmpPos.x = x
+    tmpPos.y = y
+    tmpPos.s = s
+    return tmpPos
   }
 
   function wordWidth(w: Word): number {
-    return Math.max(1, w.imageW ?? w.pixelWidth)
+    return Math.max(1, w.imageW || w.pixelWidth)
   }
 
   function wordHeight(w: Word): number {
-    return w.imageH ?? metrics.lineH
+    return w.imageH || metrics.lineH
   }
 
   const IMAGE_PRELOAD_MARGIN = 480
