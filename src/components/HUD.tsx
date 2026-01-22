@@ -88,6 +88,12 @@ export function HUD({
   }
 
   return (
+    <>
+    {/* Click-outside backdrop (desktop) */}
+    <div
+      class="fixed inset-0 z-20 max-sm:hidden"
+      onClick={onCollapseToggle}
+    />
     <div
       class={`
         fixed z-30 p-3 rounded-2xl
@@ -103,11 +109,11 @@ export function HUD({
         max-sm:rounded-2xl max-sm:gap-2 max-sm:pb-3
       `}
     >
-      {/* Mobile close */}
+      {/* Close button */}
       <button
         type="button"
         onClick={onCollapseToggle}
-        class="hidden max-sm:flex items-center justify-center absolute top-2 right-2 w-9 h-9 rounded-full bg-btn-bg hover:bg-btn-hover text-accent"
+        class="flex items-center justify-center absolute top-2 right-2 w-7 h-7 rounded-full bg-btn-bg hover:bg-btn-hover text-accent/60 hover:text-accent max-sm:w-9 max-sm:h-9"
         aria-label="Hide controls"
       >
         ×
@@ -144,7 +150,7 @@ export function HUD({
       <div class="flex gap-3 items-start">
         <div class="flex flex-col gap-1 flex-1">
           <div class="flex items-center justify-between">
-            <Label>Font</Label>
+            <Label kbd="-/=">Font</Label>
             <button
               onClick={onAutoFont}
               class={`text-[9px] uppercase tracking-wider px-1 rounded transition-opacity ${
@@ -189,7 +195,7 @@ export function HUD({
           class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs"
         >
           {inputOpen ? 'Close' : 'Text'}
-          <kbd class="text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-60 max-sm:hidden">
+          <kbd class="text-[10px] bg-btn-hover text-accent/60 rounded px-1 ml-1 max-sm:hidden">
             {inputOpen ? 'Esc' : 'I'}
           </kbd>
         </Button>
@@ -263,15 +269,16 @@ export function HUD({
         </div>
       )}
     </div>
+    </>
   )
 }
 
 function Label({ children, kbd }: { children: string; kbd?: string }) {
   return (
-    <span class="text-[9px] text-hint uppercase tracking-wider min-w-10 shrink-0 max-sm:text-[8px]">
+    <span class="text-[10px] text-hint uppercase tracking-wider min-w-10 shrink-0 max-sm:text-[9px]">
       {children}
       {kbd && (
-        <kbd class="text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-70 max-sm:hidden">
+        <kbd class="text-[10px] bg-btn-hover text-accent/60 rounded px-1 ml-1 max-sm:hidden">
           {kbd}
         </kbd>
       )}

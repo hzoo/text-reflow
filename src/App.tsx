@@ -145,6 +145,18 @@ export function App({ canvas }: AppProps) {
       }
       else if (key === 'e') engine.goToLastSentence()
       else if (key === 'i') { e.preventDefault(); openInput() }
+      else if (key === '=' || key === '+') {
+        isAutoFont$.value = false
+        const next = Math.min(128, fontSize$.value + 2)
+        fontSize$.value = next
+        engine.setFontSize(next)
+      }
+      else if (key === '-') {
+        isAutoFont$.value = false
+        const next = Math.max(10, fontSize$.value - 2)
+        fontSize$.value = next
+        engine.setFontSize(next)
+      }
       else if (key === '?') hudCollapsed$.value = !hudCollapsed$.value
       else if (e.key === 'Escape') { if (!hudCollapsed$.value) hudCollapsed$.value = true }
     }
