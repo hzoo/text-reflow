@@ -84,11 +84,20 @@ export function HUD({
       <div class="hidden max-sm:block w-9 h-1 bg-btn-bg rounded-sm mx-auto -mt-1 mb-1" />
 
       {/* Row 1: Layout + View */}
-      <div class="flex gap-2 items-center">
-        <LayoutPicker value={beat} onChange={onBeatChange} />
-        <div class="w-px h-5 bg-hud-border" />
-        <ViewPicker value={viewMode} onChange={onViewChange} />
-        <div class="flex-1" />
+      <div class="flex gap-4">
+        <div class="flex flex-col gap-1">
+          <Label kbd="1/2">Layout</Label>
+          <LayoutPicker value={beat} onChange={onBeatChange} />
+        </div>
+        <div class="flex flex-col gap-1">
+          <Label kbd="V">View</Label>
+          <ViewPicker value={viewMode} onChange={onViewChange} />
+        </div>
+      </div>
+
+      {/* Row 2: Focus */}
+      <div class="flex flex-col gap-1">
+        <Label kbd="F">Focus</Label>
         <FocusPicker value={focusStyle} onChange={onFocusChange} />
       </div>
 

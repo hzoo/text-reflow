@@ -100,7 +100,7 @@ export function App({ canvas }: AppProps) {
       else if (key === '2') engine.setBeat('ladder')
       // Arrow keys: spatial mapping (Up/Down = paragraphs, Left/Right = sentences)
       else if (e.key === 'ArrowDown' || key === 'j') {
-        if (nextParagraph()) {
+        if (nextParagraph(engine)) {
           if (viewMode$.value === 'full') {
             const counts = sentenceCounts$.value
             const offset = getSentenceOffset(counts, currentPara$.value)
@@ -108,7 +108,7 @@ export function App({ canvas }: AppProps) {
           }
         }
       } else if (e.key === 'ArrowUp' || key === 'k') {
-        if (prevParagraph()) {
+        if (prevParagraph(engine)) {
           if (viewMode$.value === 'full') {
             const counts = sentenceCounts$.value
             const offset = getSentenceOffset(counts, currentPara$.value)
@@ -116,10 +116,10 @@ export function App({ canvas }: AppProps) {
           }
         }
       } else if (e.key === 'ArrowRight' || key === 'l') {
-        if (engine.nextSentence() === 'wrap') nextParagraph()
+        if (engine.nextSentence() === 'wrap') nextParagraph(engine)
       } else if (e.key === 'ArrowLeft' || key === 'h') {
         if (engine.prevSentence() === 'wrap') {
-          if (prevParagraph()) engine.goToLastSentence()
+          if (prevParagraph(engine)) engine.goToLastSentence()
         }
       } else if (key === 'f') engine.cycleFocusStyle()
       else if (key === 'v') toggleViewMode()
@@ -158,13 +158,20 @@ export function App({ canvas }: AppProps) {
       }
 
       if (absX > absY) {
-        if (dx > 50) prevParagraph()
-        else if (dx < -50) nextParagraph()
+        if (dx > 50) {
+          if (prevParagraph(engine) && viewMode$.value === 'full') {
+            engine.setSentence(getSentenceOffset(sentenceCounts$.value, currentPara$.value))
+          }
+        } else if (dx < -50) {
+          if (nextParagraph(engine) && viewMode$.value === 'full') {
+            engine.setSentence(getSentenceOffset(sentenceCounts$.value, currentPara$.value))
+          }
+        }
       } else {
         if (dy > 50) {
-          if (engine.prevSentence() === 'wrap' && prevParagraph()) engine.goToLastSentence()
+          if (engine.prevSentence() === 'wrap' && prevParagraph(engine)) engine.goToLastSentence()
         } else if (dy < -50) {
-          if (engine.nextSentence() === 'wrap') nextParagraph()
+          if (engine.nextSentence() === 'wrap') nextParagraph(engine)
         }
       }
     }
@@ -186,35 +193,14 @@ export function App({ canvas }: AppProps) {
     engineRef.current?.setFullFocusPush(fullPush$.value)
   })
 
-  // Track previous values to detect what changed
-  const prevDocRef = useRef(document$.value)
-  const prevViewRef = useRef(viewMode$.value)
-  const prevMarkdownRef = useRef(markdownMode$.value)
-
-  // Sync scope with engine when document/view/markdown/para changes
+  // Sync scope with engine when document/view/markdown changes (snaps)
   useSignalEffect(() => {
     const engine = engineRef.current
     if (!engine) return
-
-    const doc = document$.value
-    const view = viewMode$.value
-    const markdown = markdownMode$.value
-    const para = currentPara$.value
-
-    // Determine if this is a major change (snap) or just para navigation (animate)
-    const docChanged = doc !== prevDocRef.current
-    const viewChanged = view !== prevViewRef.current
-    const markdownChanged = markdown !== prevMarkdownRef.current
-    const shouldSnap = docChanged || viewChanged || markdownChanged
-
-    prevDocRef.current = doc
-    prevViewRef.current = view
-    prevMarkdownRef.current = markdown
-
-    // In full view, para changes are handled by keyboard handler directly
-    if (view === 'full' && !shouldSnap) return
-
-    applyEngineScope(engine, { snap: shouldSnap })
+    void document$.value
+    void viewMode$.value
+    void markdownMode$.value
+    applyEngineScope(engine, { snap: true })
   })
 
   // Keep globalSentence in sync
@@ -496,18 +482,24 @@ function goToParagraph(index: number) {
   currentPara$.value = index
 }
 
-function nextParagraph(): boolean {
+function nextParagraph(engine?: ReturnType<typeof createEngine>): boolean {
   const paras = baseParagraphs$.value
   if (currentPara$.value < paras.length - 1) {
     currentPara$.value++
+    if (engine && viewMode$.value === 'paragraph') {
+      applyEngineScope(engine, { snap: false })
+    }
     return true
   }
   return false
 }
 
-function prevParagraph(): boolean {
+function prevParagraph(engine?: ReturnType<typeof createEngine>): boolean {
   if (currentPara$.value > 0) {
     currentPara$.value--
+    if (engine && viewMode$.value === 'paragraph') {
+      applyEngineScope(engine, { snap: false })
+    }
     return true
   }
   return false
