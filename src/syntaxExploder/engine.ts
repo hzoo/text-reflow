@@ -1,6 +1,7 @@
 import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
 import { createRenderer, findVisibleRange, type CanvasTheme } from './engine-render'
 import type { DocumentModel, Word } from './document'
+import { computeNextIndex, computePrevIndex, computeLastIndex, clampIndex } from './engine-sentences'
 
 type ImageCacheEntry = {
   img: HTMLImageElement
@@ -1017,18 +1018,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   /** Returns 'wrap' if at end and should go to next paragraph */
   function nextSentence(): 'ok' | 'wrap' {
-    if (hoveredSentence === null) {
-      hoveredSentence = 0
-      if (sentenceOnlyMode) fitCurrentSentence()
-      notifyStateChange()
-      invalidate()
-      return 'ok'
-    }
-    if (hoveredSentence >= sentenceCountInScope - 1) {
-      return 'wrap'
-    }
-    hoveredSentence++
-    updatePanForSentence()
+    const { index, result } = computeNextIndex(hoveredSentence, sentenceCountInScope)
+    if (result === 'wrap') return 'wrap'
+    hoveredSentence = index
+    if (hoveredSentence > 0) updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()
@@ -1037,18 +1030,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   /** Returns 'wrap' if at start and should go to prev paragraph */
   function prevSentence(): 'ok' | 'wrap' {
-    if (hoveredSentence === null) {
-      hoveredSentence = Math.max(0, sentenceCountInScope - 1)
-      if (sentenceOnlyMode) fitCurrentSentence()
-      notifyStateChange()
-      invalidate()
-      return 'ok'
-    }
-    if (hoveredSentence <= 0) {
-      return 'wrap'
-    }
-    hoveredSentence--
-    updatePanForSentence()
+    const { index, result } = computePrevIndex(hoveredSentence, sentenceCountInScope)
+    if (result === 'wrap') return 'wrap'
+    hoveredSentence = index
+    if (hoveredSentence < sentenceCountInScope - 1) updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
     invalidate()
@@ -1056,7 +1041,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function goToLastSentence() {
-    hoveredSentence = Math.max(0, sentenceCountInScope - 1)
+    hoveredSentence = computeLastIndex(sentenceCountInScope)
     updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
@@ -1064,11 +1049,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setSentence(index: number | null, opts: { snap?: boolean } = {}) {
-    if (index === null) {
-      hoveredSentence = null
-    } else {
-      hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, index))
-    }
+    hoveredSentence = clampIndex(index, sentenceCountInScope)
     updatePanForSentence()
     if (opts.snap) {
       animPadY = metrics.padY

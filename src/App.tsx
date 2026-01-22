@@ -4,11 +4,12 @@ import { HUD } from './components/HUD'
 import { InputPanel } from './components/InputPanel'
 import { CenterIndicator } from './components/Indicator'
 import { DebugPanel } from './components/DebugPanel'
-import { PasteToast, pasteToast$ } from './components/PasteToast'
+import { PasteToast } from './components/PasteToast'
 import { createEngine } from './syntaxExploder/engine'
 import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/document'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
 import { addEntry, fetchUrlToEntry } from './state/library'
+import { useEngineInput } from './hooks/useEngineInput'
 import {
   text$,
   currentPara$,
@@ -96,217 +97,20 @@ export function App({ canvas }: AppProps) {
       engine.start()
     }
 
-    const stepNextSentence = () => {
-      if (engine.nextSentence() === 'wrap') nextParagraph(engine)
-    }
-
-    const stepPrevSentence = () => {
-      if (engine.prevSentence() === 'wrap') {
-        if (prevParagraph(engine)) engine.goToLastSentence()
-      }
-    }
-
-    const stepByDelta = (deltaY: number, acc: { value: number }, threshold: number) => {
-      acc.value += deltaY
-      while (acc.value >= threshold) {
-        stepNextSentence()
-        acc.value -= threshold
-      }
-      while (acc.value <= -threshold) {
-        stepPrevSentence()
-        acc.value += threshold
-      }
-    }
-
-    // Keyboard handlers
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (inputMode$.value) return
-      const active = document.activeElement as HTMLElement | null
-      if (active) {
-        const tag = active.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
-      }
-
-      const key = e.key.toLowerCase()
-      if (key === '1') engine.setBeat('reader')
-      else if (key === '2') engine.setBeat('ladder')
-      // Arrow keys: spatial mapping (Up/Down = paragraphs, Left/Right = sentences)
-      else if (e.key === 'ArrowDown' || key === 'j') stepNextSentence()
-      else if (e.key === 'ArrowUp' || key === 'k') stepPrevSentence()
-      else if (e.key === 'ArrowRight' || key === 'l') stepNextSentence()
-      else if (e.key === 'ArrowLeft' || key === 'h') stepPrevSentence()
-      else if (key === 'f') engine.cycleFocusStyle()
-      else if (key === 'v') toggleViewMode()
-      else if (key === 'r') {
-        goToParagraph(0)
-        if (viewMode$.value === 'full') {
-          engine.setSentence(0)
-        }
-      }
-      else if (key === 'e') engine.goToLastSentence()
-      else if (key === 'i') { e.preventDefault(); openInput() }
-      else if (key === '=' || key === '+') {
-        isAutoFont$.value = false
-        const next = Math.min(128, fontSize$.value + 2)
-        fontSize$.value = next
-        engine.setFontSize(next)
-      }
-      else if (key === '-') {
-        isAutoFont$.value = false
-        const next = Math.max(10, fontSize$.value - 2)
-        fontSize$.value = next
-        engine.setFontSize(next)
-      }
-      else if (key === '?') hudCollapsed$.value = !hudCollapsed$.value
-      else if (e.key === 'Escape') { if (!hudCollapsed$.value) hudCollapsed$.value = true }
-    }
-
-    // Wheel/trackpad: scroll scrubs sentences
-    const wheelAccum = { value: 0 }
-    const handleWheel = (e: WheelEvent) => {
-      if (inputMode$.value) return
-      if (Math.abs(e.deltaY) < 1) return
-      e.preventDefault()
-      stepByDelta(e.deltaY, wheelAccum, 60)
-    }
-
-    // Touch handlers for mobile
-    let touchStartX = 0, touchStartY = 0, touchStartTime = 0
-    let touchMode: 'tap' | 'scrub' | 'none' = 'none'
-    let touchLastY = 0
-    const touchAccum = { value: 0 }
-    const getTouchCenterY = (touches: TouchList) => {
-      if (touches.length === 0) return 0
-      if (touches.length === 1) return touches[0].clientY
-      return (touches[0].clientY + touches[1].clientY) / 2
-    }
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        touchStartX = e.touches[0].clientX
-        touchStartY = e.touches[0].clientY
-        touchStartTime = Date.now()
-        touchMode = 'tap'
-      } else if (e.touches.length === 2) {
-        touchMode = 'scrub'
-        touchLastY = getTouchCenterY(e.touches)
-      }
-    }
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (touchMode !== 'scrub' || e.touches.length < 2) return
-      e.preventDefault()
-      const currentY = getTouchCenterY(e.touches)
-      const delta = touchLastY - currentY
-      touchLastY = currentY
-      if (Math.abs(delta) < 0.5) return
-      stepByDelta(delta, touchAccum, 120)
-    }
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (touchMode !== 'tap') {
-        touchMode = 'none'
-        return
-      }
-      if (e.changedTouches.length !== 1) return
-      const dx = e.changedTouches[0].clientX - touchStartX
-      const dy = e.changedTouches[0].clientY - touchStartY
-      const dt = Date.now() - touchStartTime
-      if (dt > 300) return
-
-      const absX = Math.abs(dx), absY = Math.abs(dy)
-      if (absX < 50 && absY < 50) {
-        hudCollapsed$.value = !hudCollapsed$.value
-        return
-      }
-
-      if (absX > absY) {
-        if (dx > 50) {
-          if (prevParagraph(engine) && viewMode$.value === 'full') {
-            engine.setSentence(getSentenceOffset(sentenceCounts$.value, currentPara$.value))
-          }
-        } else if (dx < -50) {
-          if (nextParagraph(engine) && viewMode$.value === 'full') {
-            engine.setSentence(getSentenceOffset(sentenceCounts$.value, currentPara$.value))
-          }
-        }
-      } else {
-        if (dy > 50) {
-          if (engine.prevSentence() === 'wrap' && prevParagraph(engine)) engine.goToLastSentence()
-        } else if (dy < -50) {
-          if (engine.nextSentence() === 'wrap') nextParagraph(engine)
-        }
-      }
-    }
-
-    // Global paste handler
-    const handlePaste = (e: ClipboardEvent) => {
-      if (inputMode$.value) return
-      const active = document.activeElement as HTMLElement | null
-      if (active) {
-        const tag = active.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
-      }
-      const text = e.clipboardData?.getData('text/plain')?.trim()
-      if (!text) return
-      e.preventDefault()
-      const isUrl = /^https?:\/\//i.test(text)
-      const preview = isUrl
-        ? (() => { try { return new URL(text).hostname } catch { return text.slice(0, 40) } })()
-        : text.slice(0, 40)
-      pasteToast$.value = { kind: isUrl ? 'url' : 'text', value: text, preview }
-    }
-
-    // Drag & drop handlers
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault()
-      canvas.style.boxShadow = 'inset 0 0 0 2px var(--color-accent, #666)'
-    }
-    const handleDragLeave = () => {
-      canvas.style.boxShadow = ''
-    }
-    const handleDrop = (e: DragEvent) => {
-      e.preventDefault()
-      canvas.style.boxShadow = ''
-      // Check for URI list
-      const uriList = e.dataTransfer?.getData('text/uri-list')?.trim()
-      if (uriList && /^https?:\/\//i.test(uriList)) {
-        fetchUrlToEntry(uriList).catch(() => {})
-        return
-      }
-      // Check for files
-      const file = e.dataTransfer?.files?.[0]
-      if (file && (file.name.endsWith('.md') || file.name.endsWith('.txt'))) {
-        const isMd = file.name.endsWith('.md')
-        file.text().then(content => {
-          if (content.trim()) addEntry({ content: content.trim(), isMarkdown: isMd })
-        })
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('paste', handlePaste)
-    document.addEventListener('dragover', handleDragOver)
-    document.addEventListener('dragleave', handleDragLeave)
-    document.addEventListener('drop', handleDrop)
-    canvas.addEventListener('wheel', handleWheel, { passive: false })
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: true })
-    canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
-    canvas.addEventListener('touchend', handleTouchEnd, { passive: true })
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('paste', handlePaste)
-      document.removeEventListener('dragover', handleDragOver)
-      document.removeEventListener('dragleave', handleDragLeave)
-      document.removeEventListener('drop', handleDrop)
-      canvas.removeEventListener('wheel', handleWheel)
-      canvas.removeEventListener('touchstart', handleTouchStart)
-      canvas.removeEventListener('touchmove', handleTouchMove)
-      canvas.removeEventListener('touchend', handleTouchEnd)
-      engine.destroy()
-    }
+    return () => { engine.destroy() }
   }, [canvas])
+
+  // Input handling (keyboard, wheel, touch, paste, drag/drop)
+  useEngineInput({
+    canvas,
+    engineRef,
+    fontSize$,
+    nextParagraph: () => nextParagraph(engineRef.current ?? undefined),
+    prevParagraph: () => prevParagraph(engineRef.current ?? undefined),
+    goToParagraph,
+    toggleViewMode,
+    openInput,
+  })
 
   // Sync fullPush with engine
   useSignalEffect(() => {
