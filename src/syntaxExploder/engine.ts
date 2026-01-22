@@ -82,8 +82,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const defaultFontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
   let fontFamily = fontOverride || defaultFontFamily
   const SCALE_EPS = 1.01
-  const AUTO_FIT_MIN_PX = 14
-  const AUTO_FIT_MAX_PX = 48
+  const AUTO_FIT_MIN_PX = 10
+  const AUTO_FIT_MAX_PX = 128
   const SENTENCE_FIT_MIN_PX = 16
   const SENTENCE_FIT_MAX_PX = 64
 
@@ -477,7 +477,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (update.maxContentWidth !== undefined) {
-      const next = Math.max(300, Math.min(1200, update.maxContentWidth))
+      const next = Math.max(200, Math.min(4000, update.maxContentWidth))
       if (next !== maxContentWidth) {
         maxContentWidth = next
         needsLayout = true
@@ -485,7 +485,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (update.fontSize !== undefined) {
-      const next = Math.max(12, Math.min(40, update.fontSize))
+      const next = Math.max(10, Math.min(128, update.fontSize))
       if (next !== fontSize) {
         fontSize = next
         needsLayout = true
@@ -847,7 +847,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setMaxWidth(w: number) {
-    maxContentWidth = Math.max(300, Math.min(1200, w))
+    maxContentWidth = Math.max(200, Math.min(4000, w))
     measureFont()
     layoutCurrentBeat()
   }
@@ -857,7 +857,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setFontSize(size: number) {
-    fontSize = Math.max(12, Math.min(40, size))
+    fontSize = Math.max(10, Math.min(128, size))
     measureFont()
     layoutCurrentBeat()
   }

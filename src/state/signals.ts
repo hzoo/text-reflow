@@ -39,6 +39,7 @@ export const moveSpeed$ = signal(1)
 export const panSpeed$ = signal(1)
 export const focusSpeed$ = signal(1)
 export const fullPush$ = signal(false)
+export const isAutoFont$ = signal(false)
 
 // Engine state signals (updated from engine callbacks)
 export const beat$ = signal<BeatId>('reader')

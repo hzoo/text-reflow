@@ -19,6 +19,7 @@ import {
   extraOpen$,
   maxWidth$,
   fullPush$,
+  isAutoFont$,
   beat$,
   focusStyle$,
   sentence$,
@@ -244,6 +245,11 @@ export function App({ canvas }: AppProps) {
     void viewMode$.value
     void markdownMode$.value
     applyEngineScope(engine, { snap: true })
+    // Re-fit font if auto mode is on
+    if (isAutoFont$.value) {
+      engine.autoFitFontSize()
+      fontSize$.value = engine.getFontSize()
+    }
   })
 
   // Keep globalSentence in sync
@@ -337,6 +343,7 @@ export function App({ canvas }: AppProps) {
   }, [])
 
   const handleFontSizeChange = useCallback((size: number) => {
+    isAutoFont$.value = false
     fontSize$.value = size
     engineRef.current?.setFontSize(size)
   }, [])
@@ -362,10 +369,11 @@ export function App({ canvas }: AppProps) {
   }, [])
 
   const handleAutoFont = useCallback(() => {
-    if (!engineRef.current) return
-    const fits = engineRef.current.autoFitFontSize()
-    // Update local signal to match the new engine state
-    fontSize$.value = engineRef.current.getFontSize()
+    isAutoFont$.value = !isAutoFont$.value
+    if (isAutoFont$.value && engineRef.current) {
+      engineRef.current.autoFitFontSize()
+      fontSize$.value = engineRef.current.getFontSize()
+    }
   }, [])
 
   const handleLoadUrl = useCallback(async (url: string) => {
@@ -411,6 +419,7 @@ export function App({ canvas }: AppProps) {
         focusSpeed={focusSpeed$.value}
         hidden={hudCollapsed$.value}
         inputOpen={inputMode$.value}
+        isAutoFont={isAutoFont$.value}
         onCollapseToggle={() => { hudCollapsed$.value = !hudCollapsed$.value }}
         onBeatChange={handleBeatChange}
         onFocusChange={handleFocusChange}

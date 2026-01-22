@@ -21,6 +21,7 @@ interface HUDProps {
   focusSpeed: number
   hidden: boolean
   inputOpen: boolean
+  isAutoFont: boolean
   onCollapseToggle: () => void
 
   // Callbacks
@@ -53,6 +54,7 @@ export function HUD({
   focusSpeed,
   hidden,
   inputOpen,
+  isAutoFont,
   onCollapseToggle,
   onBeatChange,
   onFocusChange,
@@ -159,15 +161,19 @@ export function HUD({
             <Label>Font</Label>
             <button
               onClick={onAutoFont}
-              class="text-[9px] uppercase tracking-wider text-accent hover:text-text opacity-70 hover:opacity-100 transition-opacity bg-btn-bg px-1 rounded"
+              class={`text-[9px] uppercase tracking-wider px-1 rounded transition-opacity ${
+                isAutoFont
+                  ? 'bg-accent text-bg opacity-100'
+                  : 'text-accent hover:text-text opacity-70 hover:opacity-100 bg-btn-bg'
+              }`}
               title="Auto-fit font size"
             >
               Auto
             </button>
           </div>
           <Scrubber
-            min={12}
-            max={48}
+            min={10}
+            max={128}
             step={1}
             value={fontSize}
             defaultValue={20}
@@ -177,8 +183,8 @@ export function HUD({
         <div class="flex flex-col gap-1 flex-1">
           <Label>Width</Label>
           <Scrubber
-            min={300}
-            max={1200}
+            min={200}
+            max={4000}
             step={50}
             value={maxWidth}
             defaultValue={800}
