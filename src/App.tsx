@@ -361,6 +361,13 @@ export function App({ canvas }: AppProps) {
     engineRef.current?.setFocusSpeed(s)
   }, [])
 
+  const handleAutoFont = useCallback(() => {
+    if (!engineRef.current) return
+    const fits = engineRef.current.autoFitFontSize()
+    // Update local signal to match the new engine state
+    fontSize$.value = engineRef.current.getFontSize()
+  }, [])
+
   const handleLoadUrl = useCallback(async (url: string) => {
     const response = await fetch(`https://r.jina.ai/${url}`)
     if (!response.ok) {
@@ -417,6 +424,7 @@ export function App({ canvas }: AppProps) {
         onPanSpeedChange={handlePanSpeedChange}
         onFocusSpeedChange={handleFocusSpeedChange}
         onInputOpen={openInput}
+        onAutoFont={handleAutoFont}
       />
 
       <InputPanel

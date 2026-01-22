@@ -34,6 +34,60 @@ export type RenderState = {
 
 type WordPos = { x: number; y: number; s: number }
 
+/**
+ * Binary search to find the range of words visible in the viewport.
+ * Returns { start, end } indices for iterating [start, end).
+ */
+export function findVisibleRange(
+  words: Word[],
+  state: RenderState,
+  margin = 0
+): { start: number; end: number } {
+  const { metrics } = state
+  const viewportTop = -margin
+  const viewportBottom = window.innerHeight + margin
+
+  if (words.length === 0) return { start: 0, end: 0 }
+
+  // Compute approximate Y for binary search (animY * lineH + padding)
+  const getWordTop = (w: Word) => {
+    return state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
+  }
+
+  const getWordBottom = (w: Word) => {
+    const height = w.imageH ?? metrics.lineH
+    return getWordTop(w) + height * w.animScale * w.baseScale
+  }
+
+  // Binary search for first visible word (bottom >= viewportTop)
+  let lo = 0
+  let hi = words.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (getWordBottom(words[mid]) < viewportTop) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  const start = lo
+
+  // Binary search for last visible word (top <= viewportBottom)
+  lo = start
+  hi = words.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (getWordTop(words[mid]) <= viewportBottom) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  const end = lo
+
+  return { start, end }
+}
+
 export function createRenderer(state: RenderState) {
   const { ctx, metrics } = state
 
@@ -242,9 +296,10 @@ export function createRenderer(state: RenderState) {
   }
 
   function wordUnder(px: number, py: number): Word | null {
-    // iterate; ok for a single paragraph; optimize later
     const words = state.getVisibleWords()
-    for (let i = 0; i < words.length; i++) {
+    // Use viewport culling to limit search (click can only hit visible words)
+    const { start, end } = findVisibleRange(words, state, metrics.lineH)
+    for (let i = start; i < end; i++) {
       const w = words[i]
       const s = w.animScale * w.baseScale
 

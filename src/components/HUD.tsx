@@ -36,6 +36,7 @@ interface HUDProps {
   onPanSpeedChange: (speed: number) => void
   onFocusSpeedChange: (speed: number) => void
   onInputOpen: () => void
+  onAutoFont: () => void
 }
 
 export function HUD({
@@ -65,6 +66,7 @@ export function HUD({
   onPanSpeedChange,
   onFocusSpeedChange,
   onInputOpen,
+  onAutoFont,
 }: HUDProps) {
   const isMobileView = isMobile()
 
@@ -153,7 +155,16 @@ export function HUD({
       {/* Row 3: Font + Width scrubbers */}
       <div class="flex gap-3 items-start">
         <div class="flex flex-col gap-1 flex-1">
-          <Label>Font</Label>
+          <div class="flex items-center justify-between">
+            <Label>Font</Label>
+            <button
+              onClick={onAutoFont}
+              class="text-[9px] uppercase tracking-wider text-accent hover:text-text opacity-70 hover:opacity-100 transition-opacity bg-btn-bg px-1 rounded"
+              title="Auto-fit font size"
+            >
+              Auto
+            </button>
+          </div>
           <Scrubber
             min={12}
             max={48}

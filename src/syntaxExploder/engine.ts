@@ -1,5 +1,5 @@
 import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
-import { createRenderer, type CanvasTheme } from './engine-render'
+import { createRenderer, findVisibleRange, type CanvasTheme } from './engine-render'
 import type { DocumentModel, Word } from './model'
 
 type ImageCacheEntry = {
@@ -650,12 +650,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
-  const onMouseMove = () => {
-    if (document.body.style.cursor !== 'default') {
-      document.body.style.cursor = 'default'
-    }
-  }
-
   const onClick = (e: MouseEvent) => {
     const w = wordUnder(e.offsetX, e.offsetY)
     if (!w) return
@@ -668,7 +662,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     layoutCurrentBeat()
   }
 
-  canvas.addEventListener('mousemove', onMouseMove)
   canvas.addEventListener('click', onClick)
   window.addEventListener('resize', onResize)
   if (colorSchemeQuery) {
@@ -701,34 +694,36 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       for (let i = 0; i < words.length; i++) drawWordPlain(words[i])
     } else {
       const words = visibleWords
+      // Binary search for visible range (with margin for smooth scroll)
+      const { start, end } = findVisibleRange(words, renderState, metrics.lineH * 2)
       if (hoveredGlobal !== null && focusStyle !== 'none') {
         if (focusStyle === 'gray') {
           ctx.globalAlpha = 0.2
-          for (let i = 0; i < words.length; i++) {
+          for (let i = start; i < end; i++) {
             const w = words[i]
             if (w.sentenceIndex !== hoveredGlobal) drawWordPlain(w)
           }
           ctx.globalAlpha = 1
-          for (let i = 0; i < words.length; i++) {
+          for (let i = start; i < end; i++) {
             const w = words[i]
             if (w.sentenceIndex === hoveredGlobal) drawWordPlain(w)
           }
         } else if (focusStyle === 'redact') {
           ctx.fillStyle = theme.redacted
-          for (let i = 0; i < words.length; i++) {
+          for (let i = start; i < end; i++) {
             const w = words[i]
             if (w.sentenceIndex !== hoveredGlobal) drawWordRedactRect(w)
           }
           ctx.fillStyle = theme.text
-          for (let i = 0; i < words.length; i++) {
+          for (let i = start; i < end; i++) {
             const w = words[i]
             if (w.sentenceIndex === hoveredGlobal) drawWordPlain(w)
           }
         } else {
-          for (let i = 0; i < words.length; i++) drawWord(words[i])
+          for (let i = start; i < end; i++) drawWord(words[i])
         }
       } else {
-        for (let i = 0; i < words.length; i++) drawWordPlain(words[i])
+        for (let i = start; i < end; i++) drawWordPlain(words[i])
       }
     }
 
@@ -889,7 +884,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     running = false
     if (rafId) cancelAnimationFrame(rafId)
     rafId = 0
-    canvas.removeEventListener('mousemove', onMouseMove)
     canvas.removeEventListener('click', onClick)
     window.removeEventListener('resize', onResize)
     if (colorSchemeQuery) {

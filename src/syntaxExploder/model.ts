@@ -9,9 +9,9 @@ export type Word = {
   baselineShift: number
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
-  linkUrl?: string
-  imageUrl?: string
-  imageAlt?: string
+  linkUrl: string | null
+  imageUrl: string | null
+  imageAlt: string | null
   imageW?: number
   imageH?: number
   breakAfter: boolean
@@ -223,7 +223,7 @@ export function createWords(text: string): DocumentModel {
     const isPunct = PUNCT_ONLY.test(raw)
     const isStop = !isPunct && STOPWORDS.has(lower)
 
-    const linkUrl = extractUrl(raw)
+    const linkUrl = extractUrl(raw) ?? null
     words.push({
       id,
       tokenIndex,
@@ -236,6 +236,8 @@ export function createWords(text: string): DocumentModel {
       fontStyle: 'normal',
       fontWeight: 'normal',
       linkUrl,
+      imageUrl: null,
+      imageAlt: null,
       breakAfter,
       breakAfterRows,
       paragraphIndex: 0,
@@ -366,7 +368,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
     const isPunct = PUNCT_ONLY.test(raw)
     const isStop = !isPunct && STOPWORDS.has(lower)
 
-    const linkUrl = inline.linkUrl || extractUrl(raw)
+    const linkUrl = inline.linkUrl || extractUrl(raw) || null
     words.push({
       id,
       tokenIndex,
@@ -379,6 +381,8 @@ export function createWordsMarkdown(text: string): DocumentModel {
       fontStyle: inline.fontStyle,
       fontWeight: inline.fontWeight,
       linkUrl,
+      imageUrl: null,
+      imageAlt: null,
       breakAfter: false,
       breakAfterRows: 0,
       paragraphIndex: 0,
@@ -694,6 +698,9 @@ export function createWordsBible(text: string): DocumentModel {
         baselineShift: 0,
         fontStyle: 'normal',
         fontWeight: 'normal',
+        linkUrl: null,
+        imageUrl: null,
+        imageAlt: null,
         breakAfter: false,
         breakAfterRows: 0,
         paragraphIndex: 0,
@@ -718,7 +725,7 @@ export function createWordsBible(text: string): DocumentModel {
       const lower = token.raw.toLowerCase()
       const isPunct = PUNCT_ONLY.test(token.raw)
       const isStop = !isPunct && STOPWORDS.has(lower)
-      const linkUrl = extractUrl(token.raw)
+      const linkUrl = extractUrl(token.raw) ?? null
 
       words.push({
         id,
@@ -732,6 +739,8 @@ export function createWordsBible(text: string): DocumentModel {
         fontStyle: 'normal',
         fontWeight: 'normal',
         linkUrl,
+        imageUrl: null,
+        imageAlt: null,
         breakAfter: false,
         breakAfterRows: 0,
         paragraphIndex: 0,
