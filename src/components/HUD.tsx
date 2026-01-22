@@ -36,7 +36,6 @@ interface HUDProps {
   onPanSpeedChange: (speed: number) => void
   onFocusSpeedChange: (speed: number) => void
   onInputOpen: () => void
-  onCollapseToggle: () => void
 }
 
 export function HUD({
@@ -74,9 +73,12 @@ export function HUD({
         <button
           type="button"
           onClick={onCollapseToggle}
-          class="mx-auto mb-[calc(8px+env(safe-area-inset-bottom))] block h-2 w-10 rounded-full bg-btn-bg shadow-hud"
+          class="mx-auto mb-[calc(8px+env(safe-area-inset-bottom))] flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-2.5 py-1"
           aria-label="Show controls"
-        />
+        >
+          <span class="h-2 w-6 rounded-full bg-btn-bg" />
+          <span class="text-[9px] uppercase tracking-wider text-hint">Controls</span>
+        </button>
       </div>
     )
   }
