@@ -1,6 +1,7 @@
-import { signal, computed } from '@preact/signals'
+import { signal, computed, effect } from '@preact/signals'
 import { parseDocument, parseText, parseMarkdownText, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, markdownToParagraphs, markdownToReadingText, type DocumentModel } from '../syntaxExploder/document'
 import { type BeatId, type FocusStyleId } from '../syntaxExploder/experiments'
+import { migrateOldStorage, activeEntry$, library$, addEntry } from './library'
 
 // Constants
 export const STORAGE_KEY = 'reflow-text'
@@ -12,26 +13,24 @@ export const READER_FONT = '"Iowan Old Style", "Palatino", "Book Antiqua", "Geor
 
 export const isMobile = () => window.innerWidth <= 600
 
-function looksLikeMarkdown(text: string): boolean {
-  if (!text) return false
-  return /\[\[(strong|em|link|image)/.test(text) || /^#{1,6}\s+/m.test(text) || /^-\s+/.test(text)
-}
+// Migrate old storage into library on first load
+migrateOldStorage()
 
-// Initialize from localStorage
-const savedText = localStorage.getItem(STORAGE_KEY)
-const savedMarkdown = localStorage.getItem(STORAGE_MARKDOWN_KEY)
-const initialMarkdown = savedMarkdown === '1' || looksLikeMarkdown(savedText || '')
-if (initialMarkdown) localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
+// Initialize from library active entry
+const initial = activeEntry$.value
+const initialText = initial?.content || DEFAULT_TEXT
+const initialMarkdown = initial?.isMarkdown ?? false
 
 // Core signals
-export const text$ = signal(savedText || DEFAULT_TEXT)
+export const text$ = signal(initialText)
 
-// Fetch constitution as default if no saved text
-if (!savedText) loadDefaultText()
+// Fetch constitution as default if no library entries
+if (library$.value.length === 0) loadDefaultText()
 export const currentPara$ = signal(0)
 export const inputMode$ = signal(false)
 export const hudCollapsed$ = signal(false)
 export const markdownMode$ = signal(initialMarkdown)
+
 export const debug$ = signal(false)
 export const inputTab$ = signal<'url' | 'text'>('url')
 export const viewMode$ = signal<'paragraph' | 'full'>('full')
@@ -51,6 +50,18 @@ export const globalSentence$ = signal<number | null>(null)
 export const sentenceCount$ = signal(1)
 export const sentenceOnlyMode$ = signal(false)
 export const layoutVersion$ = signal(0) // Bumped on layout for debug panel refresh
+
+// Bridge: when active library entry changes, sync to text$/markdownMode$
+let bridgeInitialized = false
+effect(() => {
+  const entry = activeEntry$.value
+  if (!bridgeInitialized) { bridgeInitialized = true; return }
+  if (!entry) return
+  text$.value = entry.content
+  markdownMode$.value = entry.isMarkdown
+  maxWidth$.value = entry.isMarkdown ? READER_WIDTH : DEFAULT_WIDTH
+  currentPara$.value = 0
+})
 
 // Derived signals
 export const fullText$ = computed(() =>
@@ -122,11 +133,7 @@ export async function loadDefaultText(): Promise<boolean> {
     if (!res.ok) return false
     const raw = await res.text()
     if (!raw.trim()) return false
-    localStorage.setItem(STORAGE_KEY, raw)
-    localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
-    text$.value = raw
-    markdownMode$.value = true
-    maxWidth$.value = READER_WIDTH
+    addEntry({ content: raw, isMarkdown: true })
     return true
   } catch {
     return false

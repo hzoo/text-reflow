@@ -2,6 +2,19 @@ import './index.css'
 import { render } from 'preact'
 import { App } from './App'
 import { Agentation } from 'agentation'
+import { fetchUrlToEntry, addEntry } from './state/library'
+
+// URL param ingest: ?url= or ?text=
+const params = new URLSearchParams(location.search)
+const paramUrl = params.get('url')
+const paramText = params.get('text')
+if (paramUrl) {
+  fetchUrlToEntry(paramUrl).catch(() => {})
+  history.replaceState(null, '', location.pathname)
+} else if (paramText) {
+  addEntry({ content: paramText, isMarkdown: false })
+  history.replaceState(null, '', location.pathname)
+}
 
 const root = document.querySelector<HTMLDivElement>('#app')!
 

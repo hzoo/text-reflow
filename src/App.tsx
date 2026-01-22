@@ -4,9 +4,11 @@ import { HUD } from './components/HUD'
 import { InputPanel } from './components/InputPanel'
 import { CenterIndicator } from './components/Indicator'
 import { DebugPanel } from './components/DebugPanel'
+import { PasteToast, pasteToast$ } from './components/PasteToast'
 import { createEngine } from './syntaxExploder/engine'
 import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/document'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
+import { addEntry, fetchUrlToEntry } from './state/library'
 import {
   text$,
   currentPara$,
@@ -34,8 +36,6 @@ import {
   getSentenceOffset,
   mapSentenceToParagraph,
   isMobile,
-  STORAGE_KEY,
-  STORAGE_MARKDOWN_KEY,
   READER_FONT,
 } from './state/signals'
 
@@ -239,7 +239,56 @@ export function App({ canvas }: AppProps) {
       }
     }
 
+    // Global paste handler
+    const handlePaste = (e: ClipboardEvent) => {
+      if (inputMode$.value) return
+      const active = document.activeElement as HTMLElement | null
+      if (active) {
+        const tag = active.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
+      }
+      const text = e.clipboardData?.getData('text/plain')?.trim()
+      if (!text) return
+      e.preventDefault()
+      const isUrl = /^https?:\/\//i.test(text)
+      const preview = isUrl
+        ? (() => { try { return new URL(text).hostname } catch { return text.slice(0, 40) } })()
+        : text.slice(0, 40)
+      pasteToast$.value = { kind: isUrl ? 'url' : 'text', value: text, preview }
+    }
+
+    // Drag & drop handlers
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      canvas.style.boxShadow = 'inset 0 0 0 2px var(--color-accent, #666)'
+    }
+    const handleDragLeave = () => {
+      canvas.style.boxShadow = ''
+    }
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault()
+      canvas.style.boxShadow = ''
+      // Check for URI list
+      const uriList = e.dataTransfer?.getData('text/uri-list')?.trim()
+      if (uriList && /^https?:\/\//i.test(uriList)) {
+        fetchUrlToEntry(uriList).catch(() => {})
+        return
+      }
+      // Check for files
+      const file = e.dataTransfer?.files?.[0]
+      if (file && (file.name.endsWith('.md') || file.name.endsWith('.txt'))) {
+        const isMd = file.name.endsWith('.md')
+        file.text().then(content => {
+          if (content.trim()) addEntry({ content: content.trim(), isMarkdown: isMd })
+        })
+      }
+    }
+
     window.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('paste', handlePaste)
+    document.addEventListener('dragover', handleDragOver)
+    document.addEventListener('dragleave', handleDragLeave)
+    document.addEventListener('drop', handleDrop)
     canvas.addEventListener('wheel', handleWheel, { passive: false })
     canvas.addEventListener('touchstart', handleTouchStart, { passive: true })
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
@@ -247,6 +296,10 @@ export function App({ canvas }: AppProps) {
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('paste', handlePaste)
+      document.removeEventListener('dragover', handleDragOver)
+      document.removeEventListener('dragleave', handleDragLeave)
+      document.removeEventListener('drop', handleDrop)
       canvas.removeEventListener('wheel', handleWheel)
       canvas.removeEventListener('touchstart', handleTouchStart)
       canvas.removeEventListener('touchmove', handleTouchMove)
@@ -404,30 +457,11 @@ export function App({ canvas }: AppProps) {
   }, [])
 
   const handleLoadUrl = useCallback(async (url: string) => {
-    const response = await fetch(`https://r.jina.ai/${url}`)
-    if (!response.ok) {
-      const errorText = await response.text()
-      throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
-    }
-    const raw = stripJinaPreamble((await response.text()).trim())
-    if (!raw) throw new Error('No content returned.')
-    localStorage.setItem(STORAGE_KEY, raw)
-    localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
-    batch(() => {
-      text$.value = raw
-      currentPara$.value = 0
-      markdownMode$.value = true
-    })
+    await fetchUrlToEntry(url)
   }, [])
 
   const handleSubmitText = useCallback((newText: string) => {
-    localStorage.setItem(STORAGE_KEY, newText)
-    localStorage.setItem(STORAGE_MARKDOWN_KEY, '0')
-    batch(() => {
-      text$.value = newText
-      currentPara$.value = 0
-      markdownMode$.value = false
-    })
+    addEntry({ content: newText, isMarkdown: false })
   }, [])
 
   return (
@@ -479,6 +513,7 @@ export function App({ canvas }: AppProps) {
       />
 
       <DebugPanel active={debug$.value} data={debugData.value} />
+      <PasteToast />
     </>
   )
 }

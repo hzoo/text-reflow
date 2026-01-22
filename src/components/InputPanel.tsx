@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'preact/hooks'
+import { library$, activeId$, setActive, deleteEntry } from '../state/library'
 
 type TabId = 'url' | 'text'
 type StatusState = '' | 'loading' | 'error' | 'ok'
@@ -175,6 +176,40 @@ export function InputPanel({ open, tab, onTabChange, onClose, onLoadUrl, onSubmi
           </div>
         </div>
       </div>
+
+      {/* Library chips */}
+      {library$.value.length > 0 && (
+        <div class="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-hud-border">
+          {library$.value.map(entry => {
+            const isActive = entry.id === activeId$.value
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => { setActive(entry.id); onClose() }}
+                class={`
+                  group relative h-6 px-2.5 pr-6 text-[11px] rounded-full
+                  border cursor-pointer transition-colors duration-75
+                  truncate max-w-[160px]
+                  ${isActive
+                    ? 'bg-accent/15 border-accent/40 text-accent'
+                    : 'bg-btn-bg border-hud-border text-muted hover:text-accent hover:border-accent/30'}
+                `}
+              >
+                {entry.title}
+                <span
+                  onClick={(e) => { e.stopPropagation(); deleteEntry(entry.id) }}
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2
+                    opacity-0 group-hover:opacity-100
+                    text-muted hover:text-accent text-[13px] leading-none"
+                >
+                  ×
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
