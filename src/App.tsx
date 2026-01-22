@@ -145,7 +145,8 @@ export function App({ canvas }: AppProps) {
       }
       else if (key === 'e') engine.goToLastSentence()
       else if (key === 'i') { e.preventDefault(); openInput() }
-      else if (e.key === 'Escape') hudCollapsed$.value = !hudCollapsed$.value
+      else if (key === '?') hudCollapsed$.value = !hudCollapsed$.value
+      else if (e.key === 'Escape') { if (!hudCollapsed$.value) hudCollapsed$.value = true }
     }
 
     // Wheel/trackpad: scroll scrubs sentences

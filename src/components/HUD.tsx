@@ -72,32 +72,16 @@ export function HUD({
 }: HUDProps) {
   const isMobileView = isMobile()
 
-  if (hidden && !isMobileView) {
+  if (hidden) {
     return (
-      <div class="fixed top-4 right-4 z-10">
+      <div class={`fixed z-10 ${isMobileView ? 'bottom-3 right-3' : 'top-3 right-3'}`}>
         <button
           type="button"
           onClick={onCollapseToggle}
-          class="flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-3 py-2"
+          class="flex items-center justify-center w-11 h-11 rounded-full bg-hud-bg border border-hud-border shadow-hud text-hint text-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="Show controls"
         >
-          <span class="h-2.5 w-7 rounded-full bg-btn-bg" />
-          <span class="text-[9px] uppercase tracking-wider text-hint">Controls</span>
-        </button>
-      </div>
-    )
-  }
-  if (hidden && isMobileView) {
-    return (
-      <div class="fixed bottom-4 right-4 z-10">
-        <button
-          type="button"
-          onClick={onCollapseToggle}
-          class="flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-3 py-2"
-          aria-label="Show controls"
-        >
-          <span class="h-2.5 w-7 rounded-full bg-btn-bg" />
-          <span class="text-[9px] uppercase tracking-wider text-hint">Controls</span>
+          ≡
         </button>
       </div>
     )
