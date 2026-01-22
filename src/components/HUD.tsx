@@ -66,17 +66,33 @@ export function HUD({
   onFocusSpeedChange,
   onInputOpen,
 }: HUDProps) {
-  if (hidden && !isMobile()) return null
-  if (hidden && isMobile()) {
+  const isMobileView = isMobile()
+
+  if (hidden && !isMobileView) {
     return (
-      <div class="fixed bottom-0 left-0 right-0 z-10">
+      <div class="fixed top-4 right-4 z-10">
         <button
           type="button"
           onClick={onCollapseToggle}
-          class="mx-auto mb-[calc(8px+env(safe-area-inset-bottom))] flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-2.5 py-1"
+          class="flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-3 py-2"
           aria-label="Show controls"
         >
-          <span class="h-2 w-6 rounded-full bg-btn-bg" />
+          <span class="h-2.5 w-7 rounded-full bg-btn-bg" />
+          <span class="text-[9px] uppercase tracking-wider text-hint">Controls</span>
+        </button>
+      </div>
+    )
+  }
+  if (hidden && isMobileView) {
+    return (
+      <div class="fixed bottom-4 right-4 z-10">
+        <button
+          type="button"
+          onClick={onCollapseToggle}
+          class="flex items-center gap-2 rounded-full bg-hud-bg border border-hud-border shadow-hud px-3 py-2"
+          aria-label="Show controls"
+        >
+          <span class="h-2.5 w-7 rounded-full bg-btn-bg" />
           <span class="text-[9px] uppercase tracking-wider text-hint">Controls</span>
         </button>
       </div>
@@ -86,7 +102,7 @@ export function HUD({
   return (
     <div
       class={`
-        fixed z-10 p-3 rounded-2xl
+        fixed z-30 p-3 rounded-2xl
         bg-hud-bg border border-hud-border shadow-hud
         backdrop-blur-xl
         flex flex-col gap-2.5
@@ -94,16 +110,25 @@ export function HUD({
 
         top-4 right-4
 
-        max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0
-        max-sm:max-w-none max-sm:rounded-b-none max-sm:gap-2
-        max-sm:pb-[calc(12px+env(safe-area-inset-bottom))]
+        max-sm:top-auto max-sm:bottom-4 max-sm:right-4 max-sm:left-auto
+        max-sm:w-[calc(100vw-32px)] max-sm:max-w-[360px]
+        max-sm:rounded-2xl max-sm:gap-2 max-sm:pb-3
       `}
     >
+      {/* Mobile close */}
+      <button
+        type="button"
+        onClick={onCollapseToggle}
+        class="hidden max-sm:flex items-center justify-center absolute top-2 right-2 w-9 h-9 rounded-full bg-btn-bg hover:bg-btn-hover text-accent"
+        aria-label="Hide controls"
+      >
+        ×
+      </button>
       {/* Mobile handle */}
       <button
         type="button"
         onClick={onCollapseToggle}
-        class="hidden max-sm:block w-9 h-1 bg-btn-bg rounded-sm mx-auto -mt-1 mb-1"
+        class="hidden max-sm:block w-12 h-2 bg-btn-bg rounded-full mx-auto -mt-1 mb-1"
         aria-label="Hide controls"
       />
 

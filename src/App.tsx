@@ -60,7 +60,6 @@ export function App({ canvas }: AppProps) {
       words: document$.value,
       fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
       maxContentWidth: maxWidth$.value,
-      pixelLayout: true,
     })
 
     engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
@@ -88,11 +87,13 @@ export function App({ canvas }: AppProps) {
     }
 
     const stepNextSentence = () => {
-      if (engine.nextSentence() === 'wrap') return
+      if (engine.nextSentence() === 'wrap') nextParagraph(engine)
     }
 
     const stepPrevSentence = () => {
-      if (engine.prevSentence() === 'wrap') return
+      if (engine.prevSentence() === 'wrap') {
+        if (prevParagraph(engine)) engine.goToLastSentence()
+      }
     }
 
     const stepByDelta = (deltaY: number, acc: { value: number }, threshold: number) => {

@@ -14,7 +14,6 @@ type EngineOpts = {
   words: DocumentModel
   fontFamily?: string
   maxContentWidth?: number
-  pixelLayout?: boolean
 }
 
 type EngineStateUpdate = {
@@ -24,7 +23,6 @@ type EngineStateUpdate = {
   maxContentWidth?: number
   fontSize?: number
   beat?: BeatId
-  pixelLayout?: boolean
   bottomReserve?: number
 }
 
@@ -32,7 +30,7 @@ type LayoutScope =
   | { mode: 'full'; paragraphBreakRows: number }
   | { mode: 'paragraph'; paragraphIndex: number; sentenceOffset: number; sentenceCount: number }
 
-export function createEngine({ canvas, words: initialModel, fontFamily: fontOverride, maxContentWidth: maxWidthOverride, pixelLayout: pixelLayoutOverride }: EngineOpts) {
+export function createEngine({ canvas, words: initialModel, fontFamily: fontOverride, maxContentWidth: maxWidthOverride }: EngineOpts) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('2D context not available')
   const ctx = context
@@ -78,13 +76,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
   let maxContentWidth = maxWidthOverride ?? 800
-  let pixelLayout = pixelLayoutOverride ?? false
   let fontSize = 20
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
   const defaultFontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
   let fontFamily = fontOverride || defaultFontFamily
   const SCALE_EPS = 1.01
+  const AUTO_FIT_MIN_PX = 14
+  const AUTO_FIT_MAX_PX = 48
+  const SENTENCE_FIT_MIN_PX = 16
+  const SENTENCE_FIT_MAX_PX = 64
 
   // Cached font string to avoid allocation in hot loop
   let fontString = ''
@@ -207,13 +208,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const effectiveMaxWidth = Math.min(viewportWidth, maxContentWidth)
 
     // Calculate cols that fit
-    if (pixelLayout) {
-      metrics.charW = 1
-      metrics.maxCols = Math.max(200, Math.floor(effectiveMaxWidth))
-    } else {
-      const maxPossibleCols = Math.floor(effectiveMaxWidth / metrics.charW)
-      metrics.maxCols = Math.max(20, Math.min(100, maxPossibleCols))
-    }
+    metrics.charW = 1
+    metrics.maxCols = Math.max(200, Math.floor(effectiveMaxWidth))
 
     // Center block horizontally
     const blockW = metrics.maxCols * metrics.charW
@@ -356,19 +352,18 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     return contentHeight <= availableHeight && maxX <= availableWidth
   }
 
-  /** Auto-fit font size. Returns true if paragraph fits, false if switched to sentence-only mode */
+  /** Auto-fit font size for visible words (no sentence-only fallback). Returns true if content fits. */
   function autoFitFontSize(): boolean {
     sentenceOnlyMode = false
 
     // Binary search for optimal font size for full paragraph
-    let minSize = 14
-    let maxSize = 48
+    let minSize = AUTO_FIT_MIN_PX
+    let maxSize = AUTO_FIT_MAX_PX
     let bestSize = minSize
 
     while (minSize <= maxSize) {
       const testSize = Math.floor((minSize + maxSize) / 2)
       fontSize = testSize
-      measureFont()
       layoutCurrentBeat(false)
 
       if (contentFits(visibleWords)) {
@@ -384,16 +379,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     measureFont()
     layoutCurrentBeat()
 
-    // Check if even minimum doesn't fit - switch to sentence-only mode
-    if (!contentFits(visibleWords)) {
-      sentenceOnlyMode = true
-      fitCurrentSentence()
-      notifyStateChange()
-      return false
-    }
-
     notifyStateChange()
-    return true
+    return contentFits(visibleWords)
   }
 
   /** Fit just the current sentence to screen */
@@ -405,14 +392,13 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (sentenceWords.length === 0) return
 
     // Binary search for optimal font size for this sentence
-    let minSize = 16
-    let maxSize = 64
+    let minSize = SENTENCE_FIT_MIN_PX
+    let maxSize = SENTENCE_FIT_MAX_PX
     let bestSize = minSize
 
     while (minSize <= maxSize) {
       const testSize = Math.floor((minSize + maxSize) / 2)
       fontSize = testSize
-      measureFont()
       layoutCurrentBeat(false)
 
       if (contentFits(sentenceWords)) {
@@ -511,11 +497,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       needsLayout = true
     }
 
-    if (update.pixelLayout !== undefined && update.pixelLayout !== pixelLayout) {
-      pixelLayout = update.pixelLayout
-      needsLayout = true
-    }
-
     if (update.bottomReserve !== undefined && update.bottomReserve !== bottomReserve) {
       bottomReserve = update.bottomReserve
       needsLayout = true
@@ -604,6 +585,20 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       maxRow = Math.max(maxRow, w.targetY + span - 1)
     }
     if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
+
+    const availableHeight = window.innerHeight - bottomReserve - 32
+    const paragraphHeight = (maxRow - minRow + 1) * metrics.lineH
+    if (paragraphHeight > availableHeight) {
+      minRow = Infinity
+      maxRow = -Infinity
+      for (let i = 0; i < sentenceWords.length; i++) {
+        const w = sentenceWords[i]
+        const span = wordRowSpan(w)
+        minRow = Math.min(minRow, w.targetY)
+        maxRow = Math.max(maxRow, w.targetY + span - 1)
+      }
+      if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
+    }
 
     const top = metrics.padY + minRow * metrics.lineH + panY
     const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
@@ -767,7 +762,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   function setBeat(next: BeatId) {
     beat = next
-    pixelLayout = true
     layoutCurrentBeat()
     notifyStateChange()
   }
