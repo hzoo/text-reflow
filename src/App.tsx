@@ -47,8 +47,6 @@ interface AppProps {
 
 export function App({ canvas }: AppProps) {
   const engineRef = useRef<ReturnType<typeof createEngine> | null>(null)
-  const indicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const centerVisible$ = useSignal(false)
 
   // Local reactive values for HUD
   const fontSize$ = useSignal(20)
@@ -101,6 +99,19 @@ export function App({ canvas }: AppProps) {
       }
     }
 
+    const stepByDelta = (deltaY: number, acc: { value: number }) => {
+      acc.value += deltaY
+      const threshold = 60
+      while (acc.value >= threshold) {
+        stepNextSentence()
+        acc.value -= threshold
+      }
+      while (acc.value <= -threshold) {
+        stepPrevSentence()
+        acc.value += threshold
+      }
+    }
+
     // Keyboard handlers
     const handleKeyDown = (e: KeyboardEvent) => {
       if (inputMode$.value) return
@@ -125,18 +136,53 @@ export function App({ canvas }: AppProps) {
       else if (e.key === 'Escape') hudCollapsed$.value = !hudCollapsed$.value
     }
 
+    // Wheel/trackpad: scroll scrubs sentences
+    const wheelAccum = { value: 0 }
+    const handleWheel = (e: WheelEvent) => {
+      if (inputMode$.value) return
+      if (Math.abs(e.deltaY) < 1) return
+      e.preventDefault()
+      stepByDelta(e.deltaY, wheelAccum)
+    }
+
     // Touch handlers for mobile
     let touchStartX = 0, touchStartY = 0, touchStartTime = 0
+    let touchMode: 'tap' | 'scrub' | 'none' = 'none'
+    let touchLastY = 0
+    const touchAccum = { value: 0 }
+    const getTouchCenterY = (touches: TouchList) => {
+      if (touches.length === 0) return 0
+      if (touches.length === 1) return touches[0].clientY
+      return (touches[0].clientY + touches[1].clientY) / 2
+    }
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
         touchStartX = e.touches[0].clientX
         touchStartY = e.touches[0].clientY
         touchStartTime = Date.now()
+        touchMode = 'tap'
+      } else if (e.touches.length === 2) {
+        touchMode = 'scrub'
+        touchLastY = getTouchCenterY(e.touches)
       }
     }
 
+    const handleTouchMove = (e: TouchEvent) => {
+      if (touchMode !== 'scrub' || e.touches.length < 2) return
+      e.preventDefault()
+      const currentY = getTouchCenterY(e.touches)
+      const delta = touchLastY - currentY
+      touchLastY = currentY
+      if (Math.abs(delta) < 0.5) return
+      stepByDelta(delta, touchAccum)
+    }
+
     const handleTouchEnd = (e: TouchEvent) => {
+      if (touchMode !== 'tap') {
+        touchMode = 'none'
+        return
+      }
       if (e.changedTouches.length !== 1) return
       const dx = e.changedTouches[0].clientX - touchStartX
       const dy = e.changedTouches[0].clientY - touchStartY
@@ -169,12 +215,16 @@ export function App({ canvas }: AppProps) {
     }
 
     window.addEventListener('keydown', handleKeyDown)
+    canvas.addEventListener('wheel', handleWheel, { passive: false })
     canvas.addEventListener('touchstart', handleTouchStart, { passive: true })
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
     canvas.addEventListener('touchend', handleTouchEnd, { passive: true })
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      canvas.removeEventListener('wheel', handleWheel)
       canvas.removeEventListener('touchstart', handleTouchStart)
+      canvas.removeEventListener('touchmove', handleTouchMove)
       canvas.removeEventListener('touchend', handleTouchEnd)
       engine.destroy()
     }
@@ -210,17 +260,6 @@ export function App({ canvas }: AppProps) {
     const counts = sentenceCounts$.value
     const offset = getSentenceOffset(counts, paraIndex)
     globalSentence$.value = offset + localSentence
-  })
-
-  // Center indicator visibility
-  useSignalEffect(() => {
-    void sentence$.value
-    void currentPara$.value
-    centerVisible$.value = true
-    if (indicatorTimeoutRef.current) clearTimeout(indicatorTimeoutRef.current)
-    indicatorTimeoutRef.current = setTimeout(() => {
-      centerVisible$.value = false
-    }, 1200)
   })
 
   // Compute read indicator text
@@ -415,11 +454,7 @@ export function App({ canvas }: AppProps) {
         onSubmitText={handleSubmitText}
       />
 
-      <CenterIndicator
-        text={centerText.value}
-        visible={centerVisible$.value}
-        atEnd={isAtEnd.value}
-      />
+      <CenterIndicator atEnd={isAtEnd.value} />
 
       <DebugPanel active={debug$.value} data={debugData.value} />
     </>
