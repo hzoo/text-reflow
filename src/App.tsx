@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'preact/hooks'
-import { useSignal, useComputed, useSignalEffect, batch, untracked } from '@preact/signals'
+import { useComputed, useSignalEffect, batch, untracked } from '@preact/signals'
 import { HUD } from './components/HUD'
 import { InputPanel } from './components/InputPanel'
 import { CenterIndicator } from './components/Indicator'
@@ -30,12 +30,17 @@ import {
   sentenceCount$,
   sentenceOnlyMode$,
   layoutVersion$,
+  fontSize$,
+  moveSpeed$,
+  panSpeed$,
+  focusSpeed$,
   paragraphs$,
   baseParagraphs$,
   document$,
   sentenceCounts$,
   getSentenceOffset,
   mapSentenceToParagraph,
+  prefs,
   isMobile,
   READER_FONT,
 } from './state/signals'
@@ -50,30 +55,19 @@ interface AppProps {
 export function App({ canvas }: AppProps) {
   const engineRef = useRef<ReturnType<typeof createEngine> | null>(null)
 
-  // Local reactive values for HUD
-  const fontSize$ = useSignal(18)
-  const moveSpeed$ = useSignal(1)
-  const panSpeed$ = useSignal(1)
-  const focusSpeed$ = useSignal(1)
-
   // Initialize engine once
   useEffect(() => {
+    // Capture persisted values before engine init can overwrite signals
+    const initBeat = beat$.value
+    const initFocusStyle = focusStyle$.value
+    const initFontSize = fontSize$.value
+
     const engine = createEngine({
       canvas,
       words: document$.value,
       fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
       maxContentWidth: maxWidth$.value,
     })
-
-    engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
-      batch(() => {
-        beat$.value = b
-        focusStyle$.value = f
-        sentence$.value = s
-        sentenceCount$.value = total
-        sentenceOnlyMode$.value = sOnly
-      })
-    }
 
     engine.onLayout = () => {
       layoutVersion$.value++
@@ -88,13 +82,46 @@ export function App({ canvas }: AppProps) {
       viewMode$.value = 'paragraph'
       isAutoFont$.value = true
       engine.setSentenceFollowMode('reveal')
-      engine.setBeat('reader')
+      engine.setBeat(initBeat)
+      engine.setFocusStyle(initFocusStyle)
       engine.start()
       engine.autoFitFontSize()
+      fontSize$.value = engine.getFontSize()
     } else {
-      engine.setFontSize(18)
-      engine.setBeat('reader')
+      engine.setFontSize(initFontSize)
+      engine.setBeat(initBeat)
+      engine.setFocusStyle(initFocusStyle)
+      engine.setMoveSpeed(moveSpeed$.value)
+      engine.setPanSpeed(panSpeed$.value)
+      engine.setFocusSpeed(focusSpeed$.value)
+      engine.setFullFocusPush(fullPush$.value)
       engine.start()
+    }
+
+    // Restore saved sentence position (clamped to current document)
+    const totalSentences = document$.value.sentenceCount
+    if (prefs.sentence > 0 && totalSentences > 0) {
+      const target = Math.min(prefs.sentence, totalSentences - 1)
+      if (viewMode$.value === 'paragraph') {
+        const counts = sentenceCounts$.value
+        const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
+        currentPara$.value = paragraphIndex
+        applyEngineScope(engine)
+        engine.setSentence(localSentence, { snap: true })
+      } else {
+        engine.setSentence(target, { snap: true })
+      }
+    }
+
+    // Hook state change callback after init to avoid clobbering persisted values
+    engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
+      batch(() => {
+        beat$.value = b
+        focusStyle$.value = f
+        sentence$.value = s
+        sentenceCount$.value = total
+        sentenceOnlyMode$.value = sOnly
+      })
     }
 
     return () => { engine.destroy() }

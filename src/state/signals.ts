@@ -6,10 +6,55 @@ import { migrateOldStorage, activeEntry$, library$, addEntry } from './library'
 // Constants
 export const STORAGE_KEY = 'reflow-text'
 export const STORAGE_MARKDOWN_KEY = 'reflow-markdown'
+export const PREFS_KEY = 'reflow-prefs'
 export const DEFAULT_WIDTH = 720
 export const READER_WIDTH = 680
 export const MOBILE_BOTTOM_RESERVE = 60
 export const READER_FONT = '"Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif'
+
+// Preferences persistence
+type ReflowPrefs = {
+  beat: BeatId
+  focusStyle: FocusStyleId
+  viewMode: 'full' | 'paragraph'
+  fullPush: boolean
+  moveSpeed: number
+  panSpeed: number
+  focusSpeed: number
+  fontSize: number
+  sentence: number
+}
+
+const DEFAULT_PREFS: ReflowPrefs = {
+  beat: 'reader', focusStyle: 'gray', viewMode: 'full',
+  fullPush: false, moveSpeed: 1, panSpeed: 1, focusSpeed: 1, fontSize: 18,
+  sentence: 0,
+}
+
+const BEATS: BeatId[] = ['reader', 'ladder']
+const FOCUS_STYLES: FocusStyleId[] = ['gray', 'redact', 'highlight', 'none']
+
+function loadPrefs(): Partial<ReflowPrefs> {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY)
+    if (!raw) return {}
+    const obj = JSON.parse(raw)
+    if (!obj || typeof obj !== 'object') return {}
+    const out: Partial<ReflowPrefs> = {}
+    if (BEATS.includes(obj.beat)) out.beat = obj.beat
+    if (FOCUS_STYLES.includes(obj.focusStyle)) out.focusStyle = obj.focusStyle
+    if (obj.viewMode === 'full' || obj.viewMode === 'paragraph') out.viewMode = obj.viewMode
+    if (typeof obj.fullPush === 'boolean') out.fullPush = obj.fullPush
+    if (typeof obj.moveSpeed === 'number' && obj.moveSpeed > 0) out.moveSpeed = obj.moveSpeed
+    if (typeof obj.panSpeed === 'number' && obj.panSpeed > 0) out.panSpeed = obj.panSpeed
+    if (typeof obj.focusSpeed === 'number' && obj.focusSpeed > 0) out.focusSpeed = obj.focusSpeed
+    if (typeof obj.fontSize === 'number' && obj.fontSize >= 8 && obj.fontSize <= 72) out.fontSize = obj.fontSize
+    if (typeof obj.sentence === 'number' && obj.sentence >= 0 && Number.isInteger(obj.sentence)) out.sentence = obj.sentence
+    return out
+  } catch { return {} }
+}
+
+export const prefs: ReflowPrefs = { ...DEFAULT_PREFS, ...loadPrefs() }
 
 export const isMobile = () => window.innerWidth <= 600
 
@@ -33,18 +78,19 @@ export const markdownMode$ = signal(initialMarkdown)
 
 export const debug$ = signal(false)
 export const inputTab$ = signal<'url' | 'text'>('url')
-export const viewMode$ = signal<'paragraph' | 'full'>('full')
+export const viewMode$ = signal<'paragraph' | 'full'>(prefs.viewMode)
 export const extraOpen$ = signal(false)
 export const maxWidth$ = signal(initialMarkdown ? READER_WIDTH : DEFAULT_WIDTH)
-export const moveSpeed$ = signal(1)
-export const panSpeed$ = signal(1)
-export const focusSpeed$ = signal(1)
-export const fullPush$ = signal(false)
+export const moveSpeed$ = signal(prefs.moveSpeed)
+export const panSpeed$ = signal(prefs.panSpeed)
+export const focusSpeed$ = signal(prefs.focusSpeed)
+export const fullPush$ = signal(prefs.fullPush)
 export const isAutoFont$ = signal(false)
+export const fontSize$ = signal(prefs.fontSize)
 
 // Engine state signals (updated from engine callbacks)
-export const beat$ = signal<BeatId>('reader')
-export const focusStyle$ = signal<FocusStyleId>('gray')
+export const beat$ = signal<BeatId>(prefs.beat)
+export const focusStyle$ = signal<FocusStyleId>(prefs.focusStyle)
 export const sentence$ = signal<number | null>(0)
 export const globalSentence$ = signal<number | null>(null)
 export const sentenceCount$ = signal(1)
@@ -61,6 +107,26 @@ effect(() => {
   markdownMode$.value = entry.isMarkdown
   maxWidth$.value = entry.isMarkdown ? READER_WIDTH : DEFAULT_WIDTH
   currentPara$.value = 0
+})
+
+// Debounced preferences save
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+effect(() => {
+  const current: ReflowPrefs = {
+    beat: beat$.value,
+    focusStyle: focusStyle$.value,
+    viewMode: viewMode$.value,
+    fullPush: fullPush$.value,
+    moveSpeed: moveSpeed$.value,
+    panSpeed: panSpeed$.value,
+    focusSpeed: focusSpeed$.value,
+    fontSize: fontSize$.value,
+    sentence: globalSentence$.value ?? 0,
+  }
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(current)) } catch {}
+  }, 500)
 })
 
 // Derived signals
