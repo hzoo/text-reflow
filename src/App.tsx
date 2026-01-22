@@ -5,7 +5,7 @@ import { InputPanel } from './components/InputPanel'
 import { CenterIndicator } from './components/Indicator'
 import { DebugPanel } from './components/DebugPanel'
 import { createEngine } from './syntaxExploder/engine'
-import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/markdown'
+import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/document'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
 import {
   text$,

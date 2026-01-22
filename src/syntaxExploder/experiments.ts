@@ -1,4 +1,4 @@
-import type { DocumentModel, Word } from './model'
+import type { DocumentModel, Word } from './document'
 import { layoutLadderPixels, layoutReaderPixels } from './layouts'
 
 export type BeatId = 'reader' | 'ladder'

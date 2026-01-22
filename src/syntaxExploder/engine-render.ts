@@ -1,5 +1,5 @@
 import type { FocusStyleId, Metrics } from './experiments'
-import type { DocumentModel, Word } from './model'
+import type { DocumentModel, Word } from './document'
 
 export type CanvasTheme = {
   text: string

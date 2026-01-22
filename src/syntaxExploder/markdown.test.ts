@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { markdownToParagraphs, markdownToReadingText, stripJinaPreamble } from './markdown'
+import { markdownToParagraphs, markdownToReadingText, stripJinaPreamble } from './document'
 
 const SOURCE = `_File over app_ is a philosophy: if you want to create digital artifacts that last, they must be files you can control, in formats that are easy to retrieve and read. Use tools that give you this freedom.
 

@@ -1,29 +1,29 @@
 import { describe, expect, test } from 'bun:test'
-import { createWords, createWordsMarkdown, splitParagraphs, SAMPLE_TEXTS, detectBibleVerses, splitByVerseNumber, createWordsBible, createDocumentFromParagraphs } from './model'
+import { parseText, parseMarkdownText, splitParagraphs, SAMPLE_TEXTS, detectBibleVerses, splitByVerseNumber, parseBibleText, parseDocument } from './document'
 
-describe('createWords', () => {
+describe('parseText', () => {
   test('tokenizes simple text', () => {
-    const doc = createWords('Hello world.')
+    const doc = parseText('Hello world.')
     expect(doc.words.length).toBe(2)
     expect(doc.words[0].text).toBe('Hello')
     expect(doc.words[1].text).toBe('world.')
   })
 
   test('preserves spacing info', () => {
-    const doc = createWords('one two three')
+    const doc = parseText('one two three')
     expect(doc.words[0].spaceAfter).toBe(true)
     expect(doc.words[1].spaceAfter).toBe(true)
     expect(doc.words[2].spaceAfter).toBe(false)
   })
 
   test('tracks pixel width placeholder', () => {
-    const doc = createWords('hi there')
+    const doc = parseText('hi there')
     expect(doc.words[0].pixelWidth).toBe(0)
     expect(doc.words[1].pixelWidth).toBe(0)
   })
 
   test('detects sentence boundaries', () => {
-    const doc = createWords('First sentence. Second one! Third?')
+    const doc = parseText('First sentence. Second one! Third?')
     expect(doc.sentenceCount).toBe(3)
     expect(doc.words[0].sentenceIndex).toBe(0) // First
     expect(doc.words[1].sentenceIndex).toBe(0) // sentence.
@@ -31,37 +31,37 @@ describe('createWords', () => {
   })
 
   test('marks stopwords', () => {
-    const doc = createWords('the quick brown fox')
+    const doc = parseText('the quick brown fox')
     expect(doc.metaById.get('w0')?.isStop).toBe(true) // the
     expect(doc.metaById.get('w1')?.isStop).toBe(false) // quick
   })
 
   test('marks punctuation', () => {
-    const doc = createWords('hello, world!')
+    const doc = parseText('hello, world!')
     expect(doc.metaById.get('w0')?.isPunct).toBe(false) // hello,
     expect(doc.metaById.get('w1')?.isPunct).toBe(false) // world!
 
-    const doc2 = createWords('wait — what')
+    const doc2 = parseText('wait — what')
     expect(doc2.metaById.get('w1')?.isPunct).toBe(true) // —
   })
 
   test('handles sample texts without error', () => {
     for (const [, text] of Object.entries(SAMPLE_TEXTS)) {
-      const doc = createWords(text)
+      const doc = parseText(text)
       expect(doc.words.length).toBeGreaterThan(0)
       expect(doc.sentenceCount).toBeGreaterThan(0)
     }
   })
 
   test('assigns unique ids', () => {
-    const doc = createWords('one two three four five')
+    const doc = parseText('one two three four five')
     const ids = doc.words.map(w => w.id)
     const unique = new Set(ids)
     expect(unique.size).toBe(ids.length)
   })
 
   test('initializes animation state to zero', () => {
-    const doc = createWords('test words')
+    const doc = parseText('test words')
     for (const w of doc.words) {
       expect(w.animX).toBe(0)
       expect(w.animY).toBe(0)
@@ -71,9 +71,9 @@ describe('createWords', () => {
   })
 })
 
-describe('createWordsMarkdown footnotes', () => {
+describe('parseMarkdownText footnotes', () => {
   test('renders numeric footnote markers as superscript', () => {
-    const doc = createWordsMarkdown('society[^1].')
+    const doc = parseMarkdownText('society[^1].')
     const footnote = doc.words.find((w) => w.text === '1')
     expect(footnote).toBeTruthy()
     expect(footnote?.baseScale).toBeLessThan(1)
@@ -167,30 +167,30 @@ describe('splitByVerseNumber', () => {
   })
 })
 
-describe('createWordsBible', () => {
+describe('parseBibleText', () => {
   test('parses Bible text with verse indices', () => {
     const text = '1 First verse here. 2 Second verse here. 3 Third verse here.'
-    const doc = createWordsBible(text)
+    const doc = parseBibleText(text)
     expect(doc.sentenceCount).toBe(3) // one per verse
     expect(doc.wordsBySentence.length).toBe(3)
   })
 
   test('verse numbers become words with smaller scale', () => {
     const text = '1 First verse. 2 Second verse. 3 Third verse.'
-    const doc = createWordsBible(text)
+    const doc = parseBibleText(text)
     const firstWord = doc.words[0]
     expect(firstWord.text).toBe('1')
     expect(firstWord.baseScale).toBe(0.85)
   })
 
   test('handles john5 sample correctly', () => {
-    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+    const doc = parseBibleText(SAMPLE_TEXTS.john5)
     expect(doc.sentenceCount).toBeGreaterThan(10) // ~17 verses
     expect(doc.words.length).toBeGreaterThan(100)
   })
 
   test('each verse starts with number or is a heading', () => {
-    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+    const doc = parseBibleText(SAMPLE_TEXTS.john5)
 
     for (let i = 0; i < doc.sentenceCount; i++) {
       const words = doc.wordsBySentence[i]
@@ -210,7 +210,7 @@ describe('createWordsBible', () => {
   })
 
   test('verse numbers are sequential', () => {
-    const doc = createWordsBible(SAMPLE_TEXTS.john5)
+    const doc = parseBibleText(SAMPLE_TEXTS.john5)
     const verseNums: number[] = []
 
     for (let i = 0; i < doc.sentenceCount; i++) {
@@ -229,17 +229,17 @@ describe('createWordsBible', () => {
   })
 })
 
-describe('auto-detection in createDocumentFromParagraphs', () => {
+describe('auto-detection in parseDocument', () => {
   test('auto-detects Bible text and uses verse splitting', () => {
     const paragraphs = [SAMPLE_TEXTS.john5]
-    const doc = createDocumentFromParagraphs(paragraphs, false)
+    const doc = parseDocument(paragraphs, false)
     // Should have ~17 verses (sentences)
     expect(doc.sentenceCount).toBeGreaterThan(10)
   })
 
   test('uses normal sentence splitting for non-Bible text', () => {
     const paragraphs = [SAMPLE_TEXTS.short]
-    const doc = createDocumentFromParagraphs(paragraphs, false)
+    const doc = parseDocument(paragraphs, false)
     expect(doc.sentenceCount).toBe(2) // Two sentences
   })
 })

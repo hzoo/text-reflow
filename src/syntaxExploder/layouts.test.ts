@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createWords, SAMPLE_TEXTS } from './model'
+import { parseText, SAMPLE_TEXTS } from './document'
 import { layoutPlainWrap, layoutCascade, layoutTree, layoutListAware, layoutMagnifyBlocks, layoutRadial } from './layouts'
 import type { Metrics } from './experiments'
 
@@ -18,13 +18,13 @@ const narrowMetrics: Metrics = {
 
 describe('layoutPlainWrap', () => {
   test('places all words', () => {
-    const doc = createWords('Hello world test')
+    const doc = parseText('Hello world test')
     const layout = layoutPlainWrap(doc, defaultMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
 
   test('wraps at maxCols', () => {
-    const doc = createWords('word '.repeat(20))
+    const doc = parseText('word '.repeat(20))
     const layout = layoutPlainWrap(doc, narrowMetrics)
 
     let maxCol = 0
@@ -35,7 +35,7 @@ describe('layoutPlainWrap', () => {
   })
 
   test('starts at col 0', () => {
-    const doc = createWords('First word')
+    const doc = parseText('First word')
     const layout = layoutPlainWrap(doc, defaultMetrics)
     expect(layout.get('w0')?.col).toBe(0)
     expect(layout.get('w0')?.row).toBe(0)
@@ -44,7 +44,7 @@ describe('layoutPlainWrap', () => {
 
 describe('layoutCascade', () => {
   test('indents sentences progressively', () => {
-    const doc = createWords('First. Second. Third.')
+    const doc = parseText('First. Second. Third.')
     const layout = layoutCascade(doc, defaultMetrics)
 
     const firstPos = layout.get('w0')
@@ -57,7 +57,7 @@ describe('layoutCascade', () => {
   })
 
   test('places sentences on different rows', () => {
-    const doc = createWords('First sentence. Second sentence.')
+    const doc = parseText('First sentence. Second sentence.')
     const layout = layoutCascade(doc, defaultMetrics)
 
     const firstRow = layout.get('w0')?.row
@@ -69,13 +69,13 @@ describe('layoutCascade', () => {
 
 describe('layoutTree', () => {
   test('handles text with subordinate clauses', () => {
-    const doc = createWords('The cat, which was black, slept.')
+    const doc = parseText('The cat, which was black, slept.')
     const layout = layoutTree(doc, defaultMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
 
   test('handles simple sentences', () => {
-    const doc = createWords('Simple sentence here.')
+    const doc = parseText('Simple sentence here.')
     const layout = layoutTree(doc, defaultMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
@@ -83,19 +83,19 @@ describe('layoutTree', () => {
 
 describe('layoutListAware', () => {
   test('handles text with lists', () => {
-    const doc = createWords('Options: first, second, third, and fourth.')
+    const doc = parseText('Options: first, second, third, and fourth.')
     const layout = layoutListAware(doc, defaultMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
 
   test('adapts to narrow screens', () => {
-    const doc = createWords('Items: one, two, three, four, five.')
+    const doc = parseText('Items: one, two, three, four, five.')
     const layout = layoutListAware(doc, narrowMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
 
   test('handles non-list text gracefully', () => {
-    const doc = createWords('Just a simple sentence.')
+    const doc = parseText('Just a simple sentence.')
     const layout = layoutListAware(doc, defaultMetrics)
     expect(layout.size).toBe(doc.words.length)
   })
@@ -103,7 +103,7 @@ describe('layoutListAware', () => {
 
 describe('layoutMagnifyBlocks', () => {
   test('spaces sentences vertically', () => {
-    const doc = createWords('First. Second. Third.')
+    const doc = parseText('First. Second. Third.')
     const layout = layoutMagnifyBlocks(doc, defaultMetrics)
 
     const rows = new Set<number>()
@@ -116,7 +116,7 @@ describe('layoutMagnifyBlocks', () => {
 
 describe('layoutRadial', () => {
   test('centers around pivot', () => {
-    const doc = createWords('The cat is sleeping.')
+    const doc = parseText('The cat is sleeping.')
     const layout = layoutRadial(doc, defaultMetrics)
 
     // "is" should be near center
@@ -139,7 +139,7 @@ describe('all layouts with sample texts', () => {
   for (const [textName, text] of Object.entries(SAMPLE_TEXTS)) {
     for (const { name, fn } of layouts) {
       test(`${name} handles ${textName}`, () => {
-        const doc = createWords(text)
+        const doc = parseText(text)
         const layout = fn(doc, defaultMetrics)
 
         expect(layout.size).toBe(doc.words.length)

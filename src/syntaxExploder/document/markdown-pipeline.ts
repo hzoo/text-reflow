@@ -1,5 +1,7 @@
 import { marked } from 'marked'
 
+// ─── Public: Jina Preamble ─────────────────────────────────────────────────
+
 export function stripJinaPreamble(raw: string): string {
   const normalized = raw.replace(/\r\n/g, '\n')
   const lines = normalized.split('\n')
@@ -7,6 +9,8 @@ export function stripJinaPreamble(raw: string): string {
   if (markerIndex >= 0) return lines.slice(markerIndex + 1).join('\n').trim()
   return normalized.trim()
 }
+
+// ─── Public: Markdown to Text ──────────────────────────────────────────────
 
 export function markdownToReadingText(raw: string): string {
   if (!raw) return ''
@@ -19,17 +23,7 @@ export function markdownToReadingText(raw: string): string {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-export function stripInlineMarkers(text: string): string {
-  return text
-    .replace(/\[\[strong\]\]/g, '')
-    .replace(/\[\[\/strong\]\]/g, '')
-    .replace(/\[\[em\]\]/g, '')
-    .replace(/\[\[\/em\]\]/g, '')
-    .replace(/\[\[link:[^\]]+\]\]/g, '')
-    .replace(/\[\[\/link\]\]/g, '')
-    .replace(/\[\[image:[^\]]+\]\]/g, '')
-    .replace(/\[\[\/image\]\]/g, '')
-}
+// ─── Public: Markdown to Paragraphs ────────────────────────────────────────
 
 export function markdownToParagraphs(raw: string): string[] {
   if (!raw) return []
@@ -102,6 +96,8 @@ export function markdownToParagraphs(raw: string): string[] {
   flushBuffer()
   return paragraphs
 }
+
+// ─── Internal Helpers ──────────────────────────────────────────────────────
 
 function appendBlockLines(token: any, out: string[]) {
   switch (token.type) {

@@ -1,6 +1,6 @@
 import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
 import { createRenderer, findVisibleRange, type CanvasTheme } from './engine-render'
-import type { DocumentModel, Word } from './model'
+import type { DocumentModel, Word } from './document'
 
 type ImageCacheEntry = {
   img: HTMLImageElement

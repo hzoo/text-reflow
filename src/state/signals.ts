@@ -1,7 +1,6 @@
 import { signal, computed } from '@preact/signals'
-import { createDocumentFromParagraphs, createWords, createWordsMarkdown, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, type DocumentModel } from '../syntaxExploder/model'
+import { parseDocument, parseText, parseMarkdownText, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, markdownToParagraphs, markdownToReadingText, type DocumentModel } from '../syntaxExploder/document'
 import { type BeatId, type FocusStyleId } from '../syntaxExploder/experiments'
-import { markdownToParagraphs, markdownToReadingText } from '../syntaxExploder/markdown'
 
 // Constants
 export const STORAGE_KEY = 'reflow-text'
@@ -73,7 +72,7 @@ export const paragraphs$ = computed(() => {
 })
 
 export const document$ = computed(() =>
-  createDocumentFromParagraphs(baseParagraphs$.value, markdownMode$.value)
+  parseDocument(baseParagraphs$.value, markdownMode$.value)
 )
 
 export const sentenceCounts$ = computed(() =>
@@ -87,7 +86,7 @@ function getSentenceCounts(paragraphs: string[], useMarkdown: boolean, doc: Docu
   if (isBible) {
     return [doc.sentenceCount]
   }
-  const create = useMarkdown ? createWordsMarkdown : createWords
+  const create = useMarkdown ? parseMarkdownText : parseText
   return paragraphs.map((paragraph) => create(paragraph).sentenceCount)
 }
 
