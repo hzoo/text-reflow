@@ -73,7 +73,7 @@ export function HUD({
         flex flex-col gap-2.5
         text-xs leading-snug
 
-        top-4 right-4 max-w-[300px]
+        top-4 right-4
 
         max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:right-0
         max-sm:max-w-none max-sm:rounded-b-none max-sm:gap-2
@@ -84,23 +84,12 @@ export function HUD({
       <div class="hidden max-sm:block w-9 h-1 bg-btn-bg rounded-sm mx-auto -mt-1 mb-1" />
 
       {/* Row 1: Layout + View */}
-      <div class="flex gap-3 items-start">
-        <div class="flex flex-col gap-1 flex-1">
-          <Label>Layout</Label>
-          <LayoutPicker value={beat} onChange={onBeatChange} />
-        </div>
-        <div class="flex flex-col gap-1 flex-1">
-          <Label kbd="V">View</Label>
-          <ViewPicker value={viewMode} onChange={onViewChange} />
-        </div>
-      </div>
-
-      {/* Row 2: Focus */}
-      <div class="flex gap-3 items-start">
-        <div class="flex flex-col gap-1 flex-1">
-          <Label kbd="F">Focus</Label>
-          <FocusPicker value={focusStyle} onChange={onFocusChange} />
-        </div>
+      <div class="flex gap-2 items-center">
+        <LayoutPicker value={beat} onChange={onBeatChange} />
+        <div class="w-px h-5 bg-hud-border" />
+        <ViewPicker value={viewMode} onChange={onViewChange} />
+        <div class="flex-1" />
+        <FocusPicker value={focusStyle} onChange={onFocusChange} />
       </div>
 
       {/* Row 3: Font + Width scrubbers */}
@@ -132,12 +121,9 @@ export function HUD({
       {/* Footer */}
       <div class="flex items-center gap-2 pt-1.5 border-t border-hud-border mt-1">
         <Button onClick={onInputOpen} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs">
-          Text <kbd class="hidden max-sm:hidden text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-70">I</kbd>
+          Text <kbd class="text-[9px] bg-btn-bg rounded px-1 ml-1 opacity-60 max-sm:hidden">I</kbd>
         </Button>
-        <span class="flex-1 text-[10px] text-hint text-center max-sm:hidden">
-          ↑↓ nav · ←→ para
-        </span>
-        <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs">
+        <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto">
           ⋯
         </Button>
       </div>
@@ -152,8 +138,8 @@ export function HUD({
                 <Button onClick={onDebugToggle} active={debug} class="h-6 px-2 text-[10px] max-sm:min-h-11">
                   Log
                 </Button>
-                <Button onClick={onFullPushToggle} active={fullPush} class="h-6 px-2 text-[10px] max-sm:min-h-11">
-                  Push
+                <Button onClick={onFullPushToggle} active={fullPush} class="h-6 px-2 text-[10px] max-sm:min-h-11" title="Spread sentences apart on hover">
+                  Spread
                 </Button>
               </div>
             </div>

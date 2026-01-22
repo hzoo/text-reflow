@@ -104,7 +104,7 @@ export function App({ canvas }: AppProps) {
           if (viewMode$.value === 'full') {
             const counts = sentenceCounts$.value
             const offset = getSentenceOffset(counts, currentPara$.value)
-            engine.setSentence(offset, { snap: true })
+            engine.setSentence(offset)
           }
         }
       } else if (e.key === 'ArrowUp' || key === 'k') {
@@ -112,7 +112,7 @@ export function App({ canvas }: AppProps) {
           if (viewMode$.value === 'full') {
             const counts = sentenceCounts$.value
             const offset = getSentenceOffset(counts, currentPara$.value)
-            engine.setSentence(offset, { snap: true })
+            engine.setSentence(offset)
           }
         }
       } else if (e.key === 'ArrowRight' || key === 'l') {
@@ -126,7 +126,7 @@ export function App({ canvas }: AppProps) {
       else if (key === 'r') {
         goToParagraph(0)
         if (viewMode$.value === 'full') {
-          engine.setSentence(0, { snap: true })
+          engine.setSentence(0)
         }
       }
       else if (key === 'i') { e.preventDefault(); openInput() }
@@ -186,15 +186,35 @@ export function App({ canvas }: AppProps) {
     engineRef.current?.setFullFocusPush(fullPush$.value)
   })
 
-  // Sync scope with engine when document/view/para changes
+  // Track previous values to detect what changed
+  const prevDocRef = useRef(document$.value)
+  const prevViewRef = useRef(viewMode$.value)
+  const prevMarkdownRef = useRef(markdownMode$.value)
+
+  // Sync scope with engine when document/view/markdown/para changes
   useSignalEffect(() => {
     const engine = engineRef.current
     if (!engine) return
-    void document$.value
-    void viewMode$.value
-    void currentPara$.value
-    void markdownMode$.value
-    applyEngineScope(engine)
+
+    const doc = document$.value
+    const view = viewMode$.value
+    const markdown = markdownMode$.value
+    const para = currentPara$.value
+
+    // Determine if this is a major change (snap) or just para navigation (animate)
+    const docChanged = doc !== prevDocRef.current
+    const viewChanged = view !== prevViewRef.current
+    const markdownChanged = markdown !== prevMarkdownRef.current
+    const shouldSnap = docChanged || viewChanged || markdownChanged
+
+    prevDocRef.current = doc
+    prevViewRef.current = view
+    prevMarkdownRef.current = markdown
+
+    // In full view, para changes are handled by keyboard handler directly
+    if (view === 'full' && !shouldSnap) return
+
+    applyEngineScope(engine, { snap: shouldSnap })
   })
 
   // Keep globalSentence in sync
@@ -429,7 +449,7 @@ export function App({ canvas }: AppProps) {
 }
 
 // Helper functions
-function applyEngineScope(engine: ReturnType<typeof createEngine>) {
+function applyEngineScope(engine: ReturnType<typeof createEngine>, opts: { snap?: boolean } = { snap: true }) {
   const counts = sentenceCounts$.value
   const paragraphIndex = currentPara$.value
   const view = viewMode$.value
@@ -438,6 +458,7 @@ function applyEngineScope(engine: ReturnType<typeof createEngine>) {
   // Use untracked to avoid creating dependency on sentence state
   const global = untracked(() => globalSentence$.value)
   const fontFamily = isMarkdown ? READER_FONT : MONO_FONT
+  const snap = opts.snap ?? true
 
   if (view === 'full') {
     const breakRows = isMarkdown ? 2 : 1
@@ -445,10 +466,10 @@ function applyEngineScope(engine: ReturnType<typeof createEngine>) {
       model: nextDoc,
       scope: { mode: 'full', paragraphBreakRows: breakRows },
       fontFamily,
-    }, { snap: true })
+    }, { snap })
     if (global != null) {
       const currentLocal = untracked(() => sentence$.value)
-      if (currentLocal !== global) engine.setSentence(global, { snap: true })
+      if (currentLocal !== global) engine.setSentence(global, { snap })
     }
     if (isMobile()) engine.autoFitFontSize()
     return
@@ -460,11 +481,11 @@ function applyEngineScope(engine: ReturnType<typeof createEngine>) {
     model: nextDoc,
     scope: { mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount },
     fontFamily,
-  }, { snap: true })
+  }, { snap })
   if (global != null && sentenceCount > 0) {
     const local = Math.max(0, Math.min(sentenceCount - 1, global - offset))
     const currentLocal = untracked(() => sentence$.value)
-    if (currentLocal !== local) engine.setSentence(local, { snap: true })
+    if (currentLocal !== local) engine.setSentence(local, { snap })
   }
   if (isMobile()) engine.autoFitFontSize()
 }

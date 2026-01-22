@@ -14,7 +14,7 @@ interface ViewPickerProps {
 
 export function ViewPicker({ value, onChange }: ViewPickerProps) {
   return (
-    <div class="flex gap-1">
+    <div class="flex gap-1 items-center">
       {VIEW_OPTIONS.map(({ id, label }) => (
         <Button
           key={id}
@@ -25,6 +25,7 @@ export function ViewPicker({ value, onChange }: ViewPickerProps) {
           {label}
         </Button>
       ))}
+      <kbd class="text-[8px] text-hint opacity-50 ml-0.5 max-sm:hidden">V</kbd>
     </div>
   )
 }

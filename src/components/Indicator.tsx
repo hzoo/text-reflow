@@ -32,18 +32,30 @@ export function CenterIndicator({ text, visible, atEnd }: CenterIndicatorProps) 
     <div
       class={`
         fixed bottom-8 left-1/2 -translate-x-1/2 z-[5]
-        py-1.5 px-3.5
-        bg-hud-bg border border-hud-border rounded-full
-        text-xs text-accent
         pointer-events-none
-        backdrop-blur-xl shadow-hud
         transition-opacity duration-100
         max-sm:bottom-[60px]
         ${visible ? 'opacity-100' : 'opacity-0'}
-        ${atEnd ? 'bg-btn-hover' : ''}
       `}
     >
-      {text}
+      <div
+        class={`
+          py-1.5 px-3.5
+          bg-hud-bg border border-hud-border rounded-full
+          text-xs text-accent
+          backdrop-blur-xl shadow-hud
+          ${atEnd ? 'bg-btn-hover' : ''}
+        `}
+      >
+        {text}
+      </div>
+      {visible && !atEnd && (
+        <div class="mt-1.5 text-center">
+          <span class="text-[10px] text-hint">
+            ↑↓ paragraphs · ←→ sentences
+          </span>
+        </div>
+      )}
     </div>
   )
 }

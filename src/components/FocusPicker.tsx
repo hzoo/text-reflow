@@ -14,17 +14,18 @@ interface FocusPickerProps {
 
 export function FocusPicker({ value, onChange }: FocusPickerProps) {
   return (
-    <div class="flex">
+    <div class="flex items-center">
       {FOCUS_OPTIONS.map(({ id, label }) => (
         <Button
           key={id}
           active={value === id}
           onClick={() => onChange(id)}
-          class="flex-1 max-sm:min-h-11 max-sm:text-[13px]"
+          class="px-2 max-sm:min-h-11 max-sm:text-[13px]"
         >
           {label}
         </Button>
       ))}
+      <kbd class="text-[8px] text-hint opacity-50 ml-0.5 max-sm:hidden">F</kbd>
     </div>
   )
 }

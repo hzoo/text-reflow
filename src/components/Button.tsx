@@ -18,12 +18,12 @@ export function Button({ active, onClick, class: className = '', title, type = '
       title={title}
       disabled={disabled}
       class={`
-        h-8 px-2.5 rounded-lg transition-all duration-100
-        bg-btn-bg hover:bg-btn-hover active:scale-95
-        text-accent text-[11px] font-inherit
+        h-8 px-2.5 rounded-md transition-colors duration-150
+        bg-btn-bg hover:bg-btn-hover
+        text-accent text-[11px] font-medium tracking-tight
         border-none cursor-pointer select-none
         ${active ? 'bg-btn-active shadow-inset' : ''}
-        ${disabled ? 'opacity-50 cursor-default' : ''}
+        ${disabled ? 'opacity-40 cursor-default' : ''}
         ${className}
       `}
     >
@@ -37,22 +37,29 @@ interface IconButtonProps {
   onClick?: () => void
   title?: string
   svg: string
+  kbd?: string
 }
 
-export function IconButton({ active, onClick, title, svg }: IconButtonProps) {
+export function IconButton({ active, onClick, title, svg, kbd }: IconButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       class={`
-        w-9 h-8 rounded-lg flex items-center justify-center
-        transition-all duration-100 border-none cursor-pointer
-        bg-btn-bg hover:bg-btn-hover active:scale-95
+        w-9 h-8 rounded-md flex items-center justify-center relative
+        transition-colors duration-150 border-none cursor-pointer
+        bg-btn-bg hover:bg-btn-hover
         max-sm:w-11 max-sm:h-11
         ${active ? 'bg-btn-active shadow-inset' : ''}
       `}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    >
+      <span dangerouslySetInnerHTML={{ __html: svg }} />
+      {kbd && (
+        <kbd class="absolute top-0.5 right-1 text-[8px] text-hint opacity-50 max-sm:hidden">
+          {kbd}
+        </kbd>
+      )}
+    </button>
   )
 }
