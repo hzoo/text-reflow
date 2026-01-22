@@ -820,7 +820,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const hoveredGlobal = hoveredSentenceGlobal()
     if (hoveredGlobal == null) return 0
 
-    const baseGap = scope.mode === 'full' ? (fullFocusPush ? 24 : 0) : 32
+    const baseGap = fullFocusPush ? (scope.mode === 'full' ? 24 : 32) : 0
 
     if (sentenceIndex < hoveredGlobal) return -baseGap / 2
     if (sentenceIndex > hoveredGlobal) return baseGap / 2
@@ -828,7 +828,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function stepFocus(dt: number): boolean {
-    const k = -Math.expm1(LN_0_01 * dt * focusSpeed)
+    const k = -Math.expm1(LN_0_0001 * dt * focusSpeed)
     const isMagnifyBeat = false
     let active = false
 
@@ -905,7 +905,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     last = now
     const dt = Math.min(0.05, dtMs / 1000)
 
-    const animating = stepWordAnimation(dt) || stepFocus(dt)
+    const wordAnim = stepWordAnimation(dt)
+    const focusAnim = stepFocus(dt)
+    const animating = wordAnim || focusAnim
     if (!needsRedraw && !animating) return
     needsRedraw = false
 

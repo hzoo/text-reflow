@@ -142,7 +142,20 @@ export function HUD({
 
       {/* Row 2: Focus */}
       <div class="flex flex-col gap-1">
-        <Label kbd="F">Focus</Label>
+        <div class="flex items-center justify-between">
+          <Label kbd="F">Focus</Label>
+          <button
+            onClick={onFullPushToggle}
+            class={`text-[9px] uppercase tracking-wider px-1 rounded border transition-all ${
+              fullPush
+                ? 'border-accent bg-accent/15 text-accent opacity-100'
+                : 'border-transparent text-hint hover:text-text opacity-70 hover:opacity-100 bg-btn-bg'
+            }`}
+            title="Spread sentences apart on focus"
+          >
+            Spread
+          </button>
+        </div>
         <FocusPicker value={focusStyle} onChange={onFocusChange} />
       </div>
 
