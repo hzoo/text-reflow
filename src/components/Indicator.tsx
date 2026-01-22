@@ -22,38 +22,36 @@ export function ReadIndicator({ text }: ReadIndicatorProps) {
 }
 
 interface CenterIndicatorProps {
-  text: string
-  visible: boolean
   atEnd: boolean
 }
 
-export function CenterIndicator({ text, visible, atEnd }: CenterIndicatorProps) {
+export function CenterIndicator({ atEnd }: CenterIndicatorProps) {
   return (
     <div
-      class={`
+      class="
         fixed bottom-8 left-1/2 -translate-x-1/2 z-[5]
         pointer-events-none
-        transition-opacity duration-100
         max-sm:bottom-[60px]
-        ${visible ? 'opacity-100' : 'opacity-0'}
-      `}
+      "
     >
-      <div
-        class={`
-          py-1.5 px-3.5
-          bg-hud-bg border border-hud-border rounded-full
-          text-xs text-accent
-          backdrop-blur-xl shadow-hud
-          ${atEnd ? 'bg-btn-hover' : ''}
-        `}
-      >
-        {text}
+      <div class="flex items-center gap-2">
+        <div class="text-[10px] text-hint">↑↓</div>
+        <div
+          class={`
+            py-1 px-3
+            bg-hud-bg border border-hud-border rounded-full
+            text-[11px] text-accent font-mono tabular-nums
+            backdrop-blur-xl shadow-hud
+            ${atEnd ? 'bg-btn-hover' : ''}
+          `}
+        >
+          {atEnd ? '✓ end' : '—'}
+        </div>
+        <div class="text-[10px] text-hint">←→</div>
       </div>
-      {visible && !atEnd && (
-        <div class="mt-1.5 text-center">
-          <span class="text-[10px] text-hint">
-            ↑↓ paragraphs · ←→ sentences
-          </span>
+      {atEnd && (
+        <div class="mt-1 text-center text-[10px] text-hint">
+          r to restart
         </div>
       )}
     </div>
