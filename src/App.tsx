@@ -50,7 +50,7 @@ export function App({ canvas }: AppProps) {
   const engineRef = useRef<ReturnType<typeof createEngine> | null>(null)
 
   // Local reactive values for HUD
-  const fontSize$ = useSignal(20)
+  const fontSize$ = useSignal(18)
   const moveSpeed$ = useSignal(1)
   const panSpeed$ = useSignal(1)
   const focusSpeed$ = useSignal(1)
@@ -84,10 +84,14 @@ export function App({ canvas }: AppProps) {
     applyEngineScope(engine)
 
     if (isMobile()) {
+      viewMode$.value = 'paragraph'
+      isAutoFont$.value = true
+      engine.setSentenceFollowMode('reveal')
       engine.setBeat('reader')
       engine.start()
       engine.autoFitFontSize()
     } else {
+      engine.setFontSize(18)
       engine.setBeat('reader')
       engine.start()
     }

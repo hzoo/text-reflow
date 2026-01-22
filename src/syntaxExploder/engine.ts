@@ -80,10 +80,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let onLayout: (() => void) | null = null
   let lastLayoutNotify = 0
   const LAYOUT_NOTIFY_THROTTLE = 200 // ms
-  let maxContentWidth = maxWidthOverride ?? 800
-  let fontSize = 20
+  let maxContentWidth = maxWidthOverride ?? 720
+  let fontSize = 18
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
+  // Controls both vertical block alignment and sentence-following behavior
+  let sentenceFollowMode: 'center' | 'reveal' = 'center'
   const defaultFontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
   let fontFamily = fontOverride || defaultFontFamily
   const SCALE_EPS = 1.01
@@ -250,6 +252,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   /** Update vertical padding using cached lastLayoutMaxRow */
   function updateVerticalPadding() {
+    if (sentenceFollowMode === 'reveal') {
+      metrics.padY = 16
+      return
+    }
     const availableHeight = window.innerHeight - bottomReserve
     const blockH = (lastLayoutMaxRow + 1) * metrics.lineH
     metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
@@ -257,7 +263,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   function updateWordCols() {
     const t0 = performance.now()
-    const words = model.words
+    const words = visibleWords
     const blockW = metrics.maxCols * metrics.charW
     const fallbackW = Math.max(1, Math.min(blockW, 360))
     const fallbackH = Math.max(metrics.lineH, Math.round(fallbackW * 0.6))
@@ -768,6 +774,19 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     return active
   }
 
+  function getViewportYBounds() {
+    return { top: 16, bottom: window.innerHeight - bottomReserve - 16 }
+  }
+
+  function getSentenceScreenYBounds(globalSentence: number) {
+    const bounds = getSentenceRowBounds(globalSentence)
+    if (bounds.minRow === Infinity) return null
+    return {
+      top: metrics.padY + bounds.minRow * metrics.lineH + panY,
+      bottom: metrics.padY + (bounds.maxRow + 1) * metrics.lineH + panY,
+    }
+  }
+
   function updatePanForSentence() {
     const globalSentence = hoveredSentenceGlobal()
     if (globalSentence == null) {
@@ -775,18 +794,23 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       return
     }
 
-    // Always center the sentence (cursor = center)
-    const bounds = getSentenceRowBounds(globalSentence)
-    if (bounds.minRow === Infinity) return
-    const minRow = bounds.minRow
-    const maxRow = bounds.maxRow
+    const sentenceBounds = getSentenceScreenYBounds(globalSentence)
+    if (!sentenceBounds) return
+    const viewport = getViewportYBounds()
 
-    const top = metrics.padY + minRow * metrics.lineH + panY
-    const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
-    const viewportTop = 16
-    const viewportBottom = window.innerHeight - bottomReserve - 16
-    const centerY = (viewportTop + viewportBottom) / 2
-    const midY = (top + bottom) / 2
+    if (sentenceFollowMode === 'reveal') {
+      const margin = 16
+      if (sentenceBounds.bottom > viewport.bottom - margin) {
+        panY += (viewport.bottom - margin) - sentenceBounds.bottom
+      } else if (sentenceBounds.top < viewport.top + margin) {
+        panY += (viewport.top + margin) - sentenceBounds.top
+      }
+      return
+    }
+
+    // Center mode: sentence midpoint → viewport center
+    const centerY = (viewport.top + viewport.bottom) / 2
+    const midY = (sentenceBounds.top + sentenceBounds.bottom) / 2
     panY += centerY - midY
   }
 
@@ -1132,6 +1156,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     isSentenceOnlyMode: () => sentenceOnlyMode,
     setSentence,
     setFullFocusPush: (next: boolean) => { fullFocusPush = next },
+    setSentenceFollowMode: (mode: 'center' | 'reveal') => { sentenceFollowMode = mode },
     setScope,
     setModel,
     commit,

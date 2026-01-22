@@ -136,17 +136,19 @@ export function HUD({
         aria-label="Hide controls"
       />
 
-      {/* Row 1: Layout + View */}
-      <div class="flex gap-4">
-        <div class="flex flex-col gap-1">
-          <Label kbd="1/2">Layout</Label>
-          <LayoutPicker value={beat} onChange={onBeatChange} />
+      {/* Row 1: Layout + View (desktop only) */}
+      {!isMobileView && (
+        <div class="flex gap-4">
+          <div class="flex flex-col gap-1">
+            <Label kbd="1/2">Layout</Label>
+            <LayoutPicker value={beat} onChange={onBeatChange} />
+          </div>
+          <div class="flex flex-col gap-1">
+            <Label kbd="V">View</Label>
+            <ViewPicker value={viewMode} onChange={onViewChange} />
+          </div>
         </div>
-        <div class="flex flex-col gap-1">
-          <Label kbd="V">View</Label>
-          <ViewPicker value={viewMode} onChange={onViewChange} />
-        </div>
-      </div>
+      )}
 
       {/* Row 2: Focus */}
       <div class="flex flex-col gap-1">
@@ -180,17 +182,19 @@ export function HUD({
             onChange={onFontSizeChange}
           />
         </div>
-        <div class="flex flex-col gap-1 flex-1">
-          <Label>Width</Label>
-          <Scrubber
-            min={200}
-            max={4000}
-            step={50}
-            value={maxWidth}
-            defaultValue={800}
-            onChange={onMaxWidthChange}
-          />
-        </div>
+        {!isMobileView && (
+          <div class="flex flex-col gap-1 flex-1">
+            <Label>Width</Label>
+            <Scrubber
+              min={200}
+              max={4000}
+              step={50}
+              value={maxWidth}
+              defaultValue={800}
+              onChange={onMaxWidthChange}
+            />
+          </div>
+        )}
       </div>
 
       {/* Footer */}
@@ -205,13 +209,15 @@ export function HUD({
             {inputOpen ? 'Esc' : 'I'}
           </kbd>
         </Button>
-        <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto">
-          ⋯
-        </Button>
+        {!isMobileView && (
+          <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto">
+            ⋯
+          </Button>
+        )}
       </div>
 
-      {/* Extra section */}
-      {extraOpen && (
+      {/* Extra section (desktop only) */}
+      {!isMobileView && extraOpen && (
         <div class="flex flex-col gap-2.5 pt-2.5 border-t border-hud-border mt-1">
           <div class="flex gap-3 items-start">
             <div class="flex flex-col gap-1 flex-1">

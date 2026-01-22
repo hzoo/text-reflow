@@ -5,7 +5,7 @@ import { type BeatId, type FocusStyleId } from '../syntaxExploder/experiments'
 // Constants
 export const STORAGE_KEY = 'reflow-text'
 export const STORAGE_MARKDOWN_KEY = 'reflow-markdown'
-export const DEFAULT_WIDTH = 800
+export const DEFAULT_WIDTH = 720
 export const READER_WIDTH = 680
 export const MOBILE_BOTTOM_RESERVE = 60
 export const READER_FONT = '"Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif'
