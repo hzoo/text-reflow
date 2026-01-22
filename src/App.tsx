@@ -34,7 +34,6 @@ import {
   isMobile,
   STORAGE_KEY,
   STORAGE_MARKDOWN_KEY,
-  MOBILE_BOTTOM_RESERVE,
   READER_FONT,
 } from './state/signals'
 
@@ -80,7 +79,6 @@ export function App({ canvas }: AppProps) {
     applyEngineScope(engine)
 
     if (isMobile()) {
-      engine.setBottomReserve(MOBILE_BOTTOM_RESERVE)
       engine.setBeat('reader')
       engine.start()
       engine.autoFitFontSize()
@@ -90,18 +88,15 @@ export function App({ canvas }: AppProps) {
     }
 
     const stepNextSentence = () => {
-      if (engine.nextSentence() === 'wrap') nextParagraph(engine)
+      if (engine.nextSentence() === 'wrap') return
     }
 
     const stepPrevSentence = () => {
-      if (engine.prevSentence() === 'wrap') {
-        if (prevParagraph(engine)) engine.goToLastSentence()
-      }
+      if (engine.prevSentence() === 'wrap') return
     }
 
-    const stepByDelta = (deltaY: number, acc: { value: number }) => {
+    const stepByDelta = (deltaY: number, acc: { value: number }, threshold: number) => {
       acc.value += deltaY
-      const threshold = 60
       while (acc.value >= threshold) {
         stepNextSentence()
         acc.value -= threshold
@@ -147,7 +142,7 @@ export function App({ canvas }: AppProps) {
       if (inputMode$.value) return
       if (Math.abs(e.deltaY) < 1) return
       e.preventDefault()
-      stepByDelta(e.deltaY, wheelAccum)
+      stepByDelta(e.deltaY, wheelAccum, 60)
     }
 
     // Touch handlers for mobile
@@ -180,7 +175,7 @@ export function App({ canvas }: AppProps) {
       const delta = touchLastY - currentY
       touchLastY = currentY
       if (Math.abs(delta) < 0.5) return
-      stepByDelta(delta, touchAccum)
+      stepByDelta(delta, touchAccum, 120)
     }
 
     const handleTouchEnd = (e: TouchEvent) => {
@@ -462,7 +457,6 @@ function applyEngineScope(engine: ReturnType<typeof createEngine>, opts: { snap?
       const currentLocal = untracked(() => sentence$.value)
       if (currentLocal !== global) engine.setSentence(global, { snap })
     }
-    if (isMobile()) engine.autoFitFontSize()
     return
   }
 
@@ -478,7 +472,6 @@ function applyEngineScope(engine: ReturnType<typeof createEngine>, opts: { snap?
     const currentLocal = untracked(() => sentence$.value)
     if (currentLocal !== local) engine.setSentence(local, { snap })
   }
-  if (isMobile()) engine.autoFitFontSize()
 }
 
 function goToParagraph(index: number) {

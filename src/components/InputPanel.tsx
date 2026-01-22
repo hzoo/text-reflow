@@ -82,7 +82,7 @@ export function InputPanel({ open, tab, onTabChange, onClose, onLoadUrl, onSubmi
   return (
     <div
       class={`
-        fixed bottom-0 left-0 right-0 z-20
+        fixed bottom-0 left-0 right-0 z-40
         bg-hud-bg border-t border-hud-border
         backdrop-blur-xl shadow-hud
         p-4 px-6 pb-5

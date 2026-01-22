@@ -29,7 +29,7 @@ export function CenterIndicator({ atEnd }: CenterIndicatorProps) {
   return (
     <div
       class="
-        fixed bottom-8 left-1/2 -translate-x-1/2 z-[5]
+        fixed bottom-8 left-1/2 -translate-x-1/2 z-30
         pointer-events-none
         max-sm:bottom-[60px]
       "
