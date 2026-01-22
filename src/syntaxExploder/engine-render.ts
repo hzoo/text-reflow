@@ -78,7 +78,7 @@ export function createRenderer(state: RenderState) {
 
     // Base position (unscaled)
     const baseX = state.animPadX + w.animX
-    const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
+    const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy + w.baselineShift * metrics.lineH
 
     let x = baseX
     let y = baseY

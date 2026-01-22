@@ -10,7 +10,7 @@ export function stripJinaPreamble(raw: string): string {
 
 export function markdownToReadingText(raw: string): string {
   if (!raw) return ''
-  const source = stripJinaPreamble(raw)
+  const source = normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw)))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const lines: string[] = []
   for (const token of tokens) {
@@ -33,7 +33,7 @@ export function stripInlineMarkers(text: string): string {
 
 export function markdownToParagraphs(raw: string): string[] {
   if (!raw) return []
-  const source = stripJinaPreamble(raw)
+  const source = normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw)))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const paragraphs: string[] = []
   let buffer: string[] = []
@@ -61,9 +61,19 @@ export function markdownToParagraphs(raw: string): string[] {
     }
     if (token.type === 'list') {
       flushBuffer()
+      const isOrdered = Boolean(token.ordered)
+      const start = typeof token.start === 'number' ? token.start : 1
+      let index = 0
       for (const item of token.items || []) {
         const text = blockTokensToInlineText(item.tokens || [])
-        if (text) paragraphs.push(`- ${text}`)
+        if (!text) continue
+        if (isOrdered) {
+          const num = start + index
+          paragraphs.push(`${num}. ${text}`)
+        } else {
+          paragraphs.push(`- ${text}`)
+        }
+        index++
       }
       continue
     }
@@ -73,6 +83,14 @@ export function markdownToParagraphs(raw: string): string[] {
       for (const inner of token.tokens || []) appendBlockLines(inner, lines)
       const quote = lines.filter((l) => l.trim()).map((line) => `> ${line}`).join('\n')
       if (quote) paragraphs.push(quote)
+      continue
+    }
+    if (token.type === 'html') {
+      flushBuffer()
+      const blocks = htmlToBlocks(token.text || token.raw || '')
+      for (const line of blocks) {
+        if (line) paragraphs.push(line)
+      }
       continue
     }
     if (token.type === 'hr') {
@@ -101,9 +119,19 @@ function appendBlockLines(token: any, out: string[]) {
       return
     }
     case 'list': {
+      const isOrdered = Boolean(token.ordered)
+      const start = typeof token.start === 'number' ? token.start : 1
+      let index = 0
       for (const item of token.items || []) {
         const text = blockTokensToInlineText(item.tokens || [])
-        if (text) out.push(`- ${text}`)
+        if (!text) continue
+        if (isOrdered) {
+          const num = start + index
+          out.push(`${num}. ${text}`)
+        } else {
+          out.push(`- ${text}`)
+        }
+        index++
       }
       out.push('')
       return
@@ -113,6 +141,12 @@ function appendBlockLines(token: any, out: string[]) {
       for (const inner of token.tokens || []) appendBlockLines(inner, lines)
       for (const line of lines.filter((l) => l.trim())) out.push(`> ${line}`)
       out.push('')
+      return
+    }
+    case 'html': {
+      const blocks = htmlToBlocks(token.text || token.raw || '')
+      for (const line of blocks) out.push(line)
+      if (blocks.length > 0) out.push('')
       return
     }
     case 'hr': {
@@ -193,4 +227,120 @@ function collapseSpaces(value: string): string {
 
 function collapseInlineSpaces(value: string): string {
   return value.replace(/[\t\f\r ]+/g, ' ').replace(/\s+([.,;:!?])/g, '$1')
+}
+
+function htmlToBlocks(html: string): string[] {
+  const trimmed = html.trim()
+  if (!trimmed) return []
+
+  if (typeof DOMParser === 'undefined') {
+    return extractHtmlBlocksRegex(trimmed)
+  }
+
+  const doc = new DOMParser().parseFromString(trimmed, 'text/html')
+  const blocks: string[] = []
+
+  function headingMarker(level: number): string {
+    return level <= 1 ? '# ' : '## '
+  }
+
+  function pushTextBlock(text: string) {
+    const cleaned = collapseSpaces(text)
+    if (cleaned) blocks.push(cleaned)
+  }
+
+  function collect(node: Node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || ''
+      if (text.trim()) pushTextBlock(text)
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el = node as HTMLElement
+    const tag = el.tagName.toUpperCase()
+    if (tag === 'H1' || tag === 'H2' || tag === 'H3' || tag === 'H4' || tag === 'H5' || tag === 'H6') {
+      const level = Number(tag.slice(1)) || 2
+      const text = el.textContent || ''
+      const cleaned = collapseSpaces(text)
+      if (cleaned) blocks.push(`${headingMarker(level)}${cleaned}`)
+      return
+    }
+    if (tag === 'P') {
+      pushTextBlock(el.textContent || '')
+      return
+    }
+    if (tag === 'OL' || tag === 'UL') {
+      const isOrdered = tag === 'OL'
+      const items = Array.from(el.querySelectorAll(':scope > li'))
+      items.forEach((li, idx) => {
+        const text = collapseSpaces(li.textContent || '')
+        if (!text) return
+        blocks.push(isOrdered ? `${idx + 1}. ${text}` : `- ${text}`)
+      })
+      return
+    }
+    if (tag === 'BLOCKQUOTE') {
+      const text = collapseSpaces(el.textContent || '')
+      if (text) blocks.push(`> ${text}`)
+      return
+    }
+
+    for (const child of Array.from(el.childNodes)) {
+      collect(child)
+    }
+  }
+
+  for (const node of Array.from(doc.body.childNodes)) {
+    collect(node)
+  }
+  return blocks
+}
+
+function extractHtmlBlocksRegex(html: string): string[] {
+  const blocks: string[] = []
+  const headingRe = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi
+  let match: RegExpExecArray | null
+  while ((match = headingRe.exec(html)) !== null) {
+    const level = parseInt(match[1], 10)
+    const text = collapseSpaces(match[2].replace(/<[^>]+>/g, ' '))
+    if (text) blocks.push(`${level <= 1 ? '# ' : '## '}${text}`)
+  }
+  const paraRe = /<p[^>]*>([\s\S]*?)<\/p>/gi
+  while ((match = paraRe.exec(html)) !== null) {
+    const text = collapseSpaces(match[1].replace(/<[^>]+>/g, ' '))
+    if (text) blocks.push(text)
+  }
+  const listRe = /<(ol|ul)[^>]*>([\s\S]*?)<\/\1>/gi
+  while ((match = listRe.exec(html)) !== null) {
+    const isOrdered = match[1].toLowerCase() === 'ol'
+    const body = match[2]
+    const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi
+    let liMatch: RegExpExecArray | null
+    let idx = 0
+    while ((liMatch = liRe.exec(body)) !== null) {
+      const text = collapseSpaces(liMatch[1].replace(/<[^>]+>/g, ' '))
+      if (!text) continue
+      idx++
+      blocks.push(isOrdered ? `${idx}. ${text}` : `- ${text}`)
+    }
+  }
+  return blocks
+}
+
+function normalizeHtmlHeadings(source: string): string {
+  if (!source) return source
+  const headingRe = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi
+  return source.replace(headingRe, (_, levelRaw, inner) => {
+    const level = parseInt(levelRaw, 10)
+    const text = collapseSpaces(String(inner).replace(/<[^>]+>/g, ' '))
+    if (!text) return ''
+    const marker = level <= 1 ? '# ' : '## '
+    return `\n${marker}${text}\n`
+  })
+}
+
+function normalizeHtmlSuperscripts(source: string): string {
+  if (!source) return source
+  const supRe = /<sup[^>]*>(\d+)<\/sup>/gi
+  return source.replace(supRe, '[^$1]')
 }

@@ -46,8 +46,9 @@ export function start(root: HTMLElement) {
   const initialMarkdown = savedMarkdown === '1' || looksLikeMarkdown(savedText || '')
   if (initialMarkdown) localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
   const markdownMode$ = signal(initialMarkdown)
-  const debug$ = signal(Boolean((window as any).__reflowDebug))
-  const viewMode$ = signal<'paragraph' | 'full'>('paragraph')
+  const debug$ = signal(false)
+  const inputTab$ = signal<'url' | 'text'>('url')
+  const viewMode$ = signal<'paragraph' | 'full'>('full')
   const extraOpen$ = signal(false)
   const maxWidth$ = signal(initialMarkdown ? READER_WIDTH : DEFAULT_WIDTH)
   const moveSpeed$ = signal(1)
@@ -134,7 +135,7 @@ export function start(root: HTMLElement) {
       <div class="hud-section">
         <span class="hud-label">More</span>
         <div class="hud-toggles">
-          <button class="hud-toggle" id="debug-toggle" type="button">Log</button>
+          <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
           <button class="hud-toggle" id="fullpush-toggle" type="button">Push</button>
         </div>
       </div>
@@ -155,13 +156,28 @@ export function start(root: HTMLElement) {
   const inputPanel = document.createElement('div')
   inputPanel.id = 'input-panel'
   inputPanel.innerHTML = `
-    <div class="url-row">
-      <input id="url-input" type="url" placeholder="paste a url..." autocomplete="off" />
-      <button id="url-load" type="button">Load</button>
+    <div class="input-header">
+      <div class="input-title">Load</div>
+      <div class="input-tabs" role="tablist" aria-label="Input mode">
+        <button class="input-tab active" id="tab-url" type="button" role="tab" aria-selected="true" aria-controls="pane-url">URL</button>
+        <button class="input-tab" id="tab-text" type="button" role="tab" aria-selected="false" aria-controls="pane-text">Paste</button>
+      </div>
+      <button class="input-close" id="input-close" type="button" aria-label="Close">×</button>
     </div>
-    <div class="url-status" id="url-status"></div>
-    <textarea id="text-input" placeholder="paste or type text..."></textarea>
-    <div class="input-hint">Esc to render · Cmd+Enter to render</div>
+    <div class="input-body">
+      <div class="input-pane active" id="pane-url" role="tabpanel" aria-labelledby="tab-url">
+        <div class="url-row">
+          <input id="url-input" type="url" placeholder="paste a url..." autocomplete="off" />
+          <button id="url-load" type="button">Load</button>
+        </div>
+        <div class="url-status" id="url-status"></div>
+        <div class="input-hint">Enter to load · Esc to close</div>
+      </div>
+      <div class="input-pane" id="pane-text" role="tabpanel" aria-labelledby="tab-text">
+        <textarea id="text-input" placeholder="paste or type text..."></textarea>
+        <div class="input-hint">Cmd+Enter to render · Esc to close</div>
+      </div>
+    </div>
   `
   root.appendChild(inputPanel)
 
@@ -183,6 +199,11 @@ export function start(root: HTMLElement) {
   const urlInput = inputPanel.querySelector('#url-input') as HTMLInputElement
   const urlLoad = inputPanel.querySelector('#url-load') as HTMLButtonElement
   const urlStatus = inputPanel.querySelector('#url-status') as HTMLDivElement
+  const inputClose = inputPanel.querySelector('#input-close') as HTMLButtonElement
+  const tabUrl = inputPanel.querySelector('#tab-url') as HTMLButtonElement
+  const tabText = inputPanel.querySelector('#tab-text') as HTMLButtonElement
+  const paneUrl = inputPanel.querySelector('#pane-url') as HTMLDivElement
+  const paneText = inputPanel.querySelector('#pane-text') as HTMLDivElement
   const moreToggle = hud.querySelector('#more-toggle') as HTMLButtonElement
   const hudExtra = hud.querySelector('#hud-extra') as HTMLDivElement
   const debugToggle = hud.querySelector('#debug-toggle') as HTMLButtonElement
@@ -216,10 +237,6 @@ export function start(root: HTMLElement) {
 
   engine.onStateChange = syncEngineState
 
-  if ((window as any).__reflowDebug) {
-    const sample = document$.value.words.slice(0, 6).map(w => w.text).join(' ')
-    console.debug('[reflow] initEngine', 'paras', paragraphs$.value.length, 'idx', currentPara$.value, 'words', document$.value.words.length, 'sample', sample)
-  }
 
   const applyEngineScope = () => {
     const counts = sentenceCounts$.value
@@ -440,6 +457,17 @@ export function start(root: HTMLElement) {
     inputPanel.classList.toggle('open', inputMode$.value)
   })
 
+  effect(() => {
+    const tab = inputTab$.value
+    const isUrl = tab === 'url'
+    tabUrl.classList.toggle('active', isUrl)
+    tabText.classList.toggle('active', !isUrl)
+    tabUrl.setAttribute('aria-selected', isUrl ? 'true' : 'false')
+    tabText.setAttribute('aria-selected', isUrl ? 'false' : 'true')
+    paneUrl.classList.toggle('active', isUrl)
+    paneText.classList.toggle('active', !isUrl)
+  })
+
   // Debug paragraph changes
   effect(() => {
     const paras = paragraphs$.value
@@ -456,14 +484,21 @@ export function start(root: HTMLElement) {
     debugPanel.classList.toggle('active', isDebug)
     if (!isDebug) return
 
-    const paras = paragraphs$.value
+    const source = text$.value || ''
+    const normalized = stripJinaPreamble(source)
+    const baseParas = baseParagraphs$.value
+    const viewParas = paragraphs$.value
     const idx = currentPara$.value
-    const raw = paras[idx] || ''
-    const plain = stripInlineMarkers(raw)
+    const raw = baseParas[idx] || ''
+    const viewPara = viewParas[idx] || ''
+    const plain = stripInlineMarkers(viewPara)
     const mode = markdownMode$.value ? 'markdown' : 'plain'
     const view = viewMode$.value
     const sentenceId = sentence$.value
     const globalSentence = globalSentence$.value
+    const headings = baseParas.filter((p) => p.startsWith('# ') || p.startsWith('## '))
+    const listItems = baseParas.filter((p) => /^-\s+/.test(p))
+    const sourceFootnotes = normalized.match(/\[\^\d+\]/g) || []
     let paraId = 0
     let paraRange = '—'
     if (globalSentence !== null) {
@@ -480,12 +515,23 @@ export function start(root: HTMLElement) {
     debugPanel.innerHTML = `
       <div><strong>mode</strong> ${mode}</div>
       <div><strong>view</strong> ${view}</div>
-      <div><strong>para</strong> ${idx + 1}/${paras.length}</div>
+      <div><strong>para</strong> ${idx + 1}/${baseParas.length}</div>
+      <div><strong>viewp</strong> ${viewParas.length}</div>
       <div><strong>sent</strong> ${sentenceId ?? '—'}</div>
+      <div><strong>gsent</strong> ${globalSentence ?? '—'}</div>
       <div><strong>pid</strong> ${paraId}</div>
       <div><strong>rows</strong> ${paraRange}</div>
-      <div><strong>raw</strong> ${raw.replace(/\n/g, ' ')}</div>
-      <div><strong>plain</strong> ${plain.replace(/\n/g, ' ')}</div>
+      <div><strong>words</strong> ${document$.value.words.length}</div>
+      <div><strong>heads</strong> ${headings.length}</div>
+      <div><strong>lists</strong> ${listItems.length}</div>
+      <div><strong>fn</strong> ${sourceFootnotes.length}</div>
+      <div class="debug-block"><div class="debug-label">source</div><pre>${escapeHtml(source)}</pre></div>
+      <div class="debug-block"><div class="debug-label">normalized</div><pre>${escapeHtml(normalized)}</pre></div>
+      <div class="debug-block"><div class="debug-label">paragraph</div><pre>${escapeHtml(raw)}</pre></div>
+      <div class="debug-block"><div class="debug-label">view</div><pre>${escapeHtml(viewPara)}</pre></div>
+      <div class="debug-block"><div class="debug-label">plain</div><pre>${escapeHtml(plain)}</pre></div>
+      <div class="debug-block"><div class="debug-label">headings</div><pre>${escapeHtml(headings.join('\n'))}</pre></div>
+      <div class="debug-block"><div class="debug-label">list items</div><pre>${escapeHtml(listItems.join('\n'))}</pre></div>
     `
   })
 
@@ -516,6 +562,7 @@ export function start(root: HTMLElement) {
   effect(() => {
     hudExtra.classList.toggle('active', extraOpen$.value)
   })
+
 
   // ═══════════════════════════════════════════════════════════
   // Actions
@@ -549,10 +596,11 @@ export function start(root: HTMLElement) {
 
   function openInput() {
     inputMode$.value = true
+    inputTab$.value = 'url'
     textInput.value = ''
     urlStatus.textContent = ''
     urlStatus.dataset.state = ''
-    requestAnimationFrame(() => textInput.focus())
+    requestAnimationFrame(() => urlInput.focus())
   }
 
   function closeInput(submit: boolean) {
@@ -644,7 +692,6 @@ export function start(root: HTMLElement) {
 
   debugToggle.addEventListener('click', () => {
     debug$.value = !debug$.value
-    ;(window as any).__reflowDebug = debug$.value
   })
 
   moreToggle.addEventListener('click', () => {
@@ -682,6 +729,20 @@ export function start(root: HTMLElement) {
       e.preventDefault()
       closeInput(true)
     }
+  })
+
+  tabUrl.addEventListener('click', () => {
+    inputTab$.value = 'url'
+    requestAnimationFrame(() => urlInput.focus())
+  })
+
+  tabText.addEventListener('click', () => {
+    inputTab$.value = 'text'
+    requestAnimationFrame(() => textInput.focus())
+  })
+
+  inputClose.addEventListener('click', () => {
+    closeInput(false)
   })
 
   urlInput.addEventListener('keydown', e => {
@@ -804,4 +865,13 @@ function mapSentenceToParagraph(sentenceIndex: number, counts: number[]): { para
   }
   const lastIndex = Math.max(0, counts.length - 1)
   return { paragraphIndex: lastIndex, localSentence: Math.max(0, (counts[lastIndex] || 1) - 1) }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

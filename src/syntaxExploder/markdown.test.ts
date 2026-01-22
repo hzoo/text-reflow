@@ -30,6 +30,8 @@ One of the most visible ideologies in tech is effective altruism (or EA), a phil
 
 const HEADER_SPACING = `**An Idea Machine is a self-sustaining organism that contains all the parts needed to turn ideas into outcomes:**`
 const ABBR_SENTENCE = `This is a test, e.g. with abbreviations. Next sentence starts here.`
+const HTML_HEADINGS = `without asking for permission.\n<h2 class=\"Body-module-scss-module__z40yvW__reading-column headline-5 post-section\" id=\"what-is-claudes-constitution\">What is Claude’s Constitution?</h2>\n<h2 class=\"Body-module-scss-module__z40yvW__reading-column headline-5 post-section\" id=\"our-new-approach-to-claudes-constitution\">Our new approach to Claude’s Constitution</h2>\nClaude’s constitution`
+const HTML_SUP = `<p>We think transparency of this kind will become ever more important as AIs start to exert more influence in society<sup>1</sup>.</p>`
 
 describe('markdownToReadingText', () => {
   test('parses stephango sample', () => {
@@ -77,5 +79,16 @@ describe('markdownToReadingText', () => {
     const sentences = text.split(/\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean)
     expect(sentences.length).toBe(2)
     expect(sentences[0].includes('e.g.')).toBe(true)
+  })
+
+  test('extracts html headings with attributes', () => {
+    const paragraphs = markdownToParagraphs(HTML_HEADINGS)
+    expect(paragraphs).toContain('## What is Claude’s Constitution?')
+    expect(paragraphs).toContain('## Our new approach to Claude’s Constitution')
+  })
+
+  test('converts html superscripts into footnote markers', () => {
+    const paragraphs = markdownToParagraphs(HTML_SUP)
+    expect(paragraphs.some((p) => p.includes('society[^1].'))).toBe(true)
   })
 })

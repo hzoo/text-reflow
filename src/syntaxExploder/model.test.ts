@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createWords, splitParagraphs, SAMPLE_TEXTS, detectBibleVerses, splitByVerseNumber, createWordsBible, createDocumentFromParagraphs } from './model'
+import { createWords, createWordsMarkdown, splitParagraphs, SAMPLE_TEXTS, detectBibleVerses, splitByVerseNumber, createWordsBible, createDocumentFromParagraphs } from './model'
 
 describe('createWords', () => {
   test('tokenizes simple text', () => {
@@ -68,6 +68,16 @@ describe('createWords', () => {
       expect(w.animScale).toBe(1)
       expect(w.focusDy).toBe(0)
     }
+  })
+})
+
+describe('createWordsMarkdown footnotes', () => {
+  test('renders numeric footnote markers as superscript', () => {
+    const doc = createWordsMarkdown('society[^1].')
+    const footnote = doc.words.find((w) => w.text === '1')
+    expect(footnote).toBeTruthy()
+    expect(footnote?.baseScale).toBeLessThan(1)
+    expect(footnote?.baselineShift).toBeLessThan(0)
   })
 })
 

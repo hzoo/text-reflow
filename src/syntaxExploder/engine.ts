@@ -100,9 +100,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   function notifyStateChange() {
     onStateChange?.(beat, focusStyle, hoveredSentence, sentenceCountInScope, sentenceOnlyMode)
-    if ((window as any).__reflowDebug) {
-      console.debug('[reflow] sentence', hoveredSentence, 'count', sentenceCountInScope)
-    }
   }
 
   function requestFrame() {

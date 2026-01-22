@@ -6,6 +6,7 @@ export type Word = {
   displayText: string
   spaceAfter: boolean
   baseScale: number
+  baselineShift: number
   fontStyle: 'normal' | 'italic'
   fontWeight: 'normal' | 'bold'
   linkUrl?: string
@@ -95,6 +96,29 @@ const STOPWORDS = new Set([
   'would',
   'you',
 ])
+
+const SUPERSCRIPT_SCALE = 0.65
+const SUPERSCRIPT_SHIFT = -0.35
+type FootnoteSplit = { base: string; marker: string; punct?: string }
+
+function splitFootnoteToken(raw: string): FootnoteSplit | null {
+  const bracketed = raw.match(/^(.+?)\[\^(\d+)\]([.,;:!?])?$/)
+  if (bracketed) {
+    return { base: bracketed[1], marker: bracketed[2], punct: bracketed[3] }
+  }
+  const bracketOnly = raw.match(/^\[\^(\d+)\]([.,;:!?])?$/)
+  if (bracketOnly) {
+    return { base: '', marker: bracketOnly[1], punct: bracketOnly[2] }
+  }
+  const numeric = raw.match(/^(.+?)(\d{1,3})([.,;:!?])$/)
+  if (numeric) {
+    const base = numeric[1]
+    if (/[A-Za-z]$/.test(base)) {
+      return { base, marker: numeric[2], punct: numeric[3] }
+    }
+  }
+  return null
+}
 
 export type WordMeta = {
   isStop: boolean
@@ -192,14 +216,8 @@ export function createWords(text: string): DocumentModel {
     }
   })
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
-    const raw = token.raw
-    const spaceAfter = token.spaceAfter
-    const displayText = token.displayText
-    const breakAfter = /\n/.test(token.token)
-    const breakAfterRows = breakAfter ? 1 : 0
-
+  function pushWord(raw: string, spaceAfter: boolean, baseScale: number, baselineShift: number, skipSentenceEnd: boolean, breakAfter: boolean, breakAfterRows: number, nextRaw?: string) {
+    const displayText = raw + (spaceAfter ? ' ' : '')
     const id = `w${tokenIndex}`
     const lower = raw.toLowerCase()
     const isPunct = PUNCT_ONLY.test(raw)
@@ -213,7 +231,8 @@ export function createWords(text: string): DocumentModel {
       text: raw,
       displayText,
       spaceAfter,
-      baseScale: 1,
+      baseScale,
+      baselineShift,
       fontStyle: 'normal',
       fontWeight: 'normal',
       linkUrl,
@@ -234,9 +253,33 @@ export function createWords(text: string): DocumentModel {
     if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
     wordsBySentence[sentenceIndex].push(words[words.length - 1])
 
-    const nextRaw = tokens[i + 1]?.raw
-    if (isSentenceEnd(raw, nextRaw)) sentenceIndex++
+    if (!skipSentenceEnd && isSentenceEnd(raw, nextRaw)) sentenceIndex++
     tokenIndex++
+  }
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    const raw = token.raw
+    const spaceAfter = token.spaceAfter
+    const breakAfter = /\n/.test(token.token)
+    const breakAfterRows = breakAfter ? 1 : 0
+    const nextRaw = tokens[i + 1]?.raw
+
+    const split = splitFootnoteToken(raw)
+    if (split) {
+      if (split.base) {
+        pushWord(split.base, false, 1, 0, false, false, 0)
+      }
+      const footnoteSpace = !split.punct && spaceAfter
+      const footnoteBreak = !split.punct && breakAfter
+      pushWord(split.marker, footnoteSpace, SUPERSCRIPT_SCALE, SUPERSCRIPT_SHIFT, true, footnoteBreak, footnoteBreak ? breakAfterRows : 0)
+      if (split.punct) {
+        pushWord(split.punct, spaceAfter, 1, 0, false, breakAfter, breakAfterRows, nextRaw)
+      }
+      continue
+    }
+
+    pushWord(raw, spaceAfter, 1, 0, false, breakAfter, breakAfterRows, nextRaw)
   }
 
   const finalSentenceCount = words.length > 0 ? words[words.length - 1].sentenceIndex + 1 : 0
@@ -316,7 +359,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
   let tokenIndex = 0
   let sentenceIndex = 0
 
-  function pushWord(raw: string, spaceAfter: boolean, baseScale: number, inline: InlineStyle) {
+  function pushWord(raw: string, spaceAfter: boolean, baseScale: number, baselineShift: number, inline: InlineStyle, skipSentenceEnd = false) {
     const displayText = raw + (spaceAfter ? ' ' : '')
     const id = `w${tokenIndex}`
     const lower = raw.toLowerCase()
@@ -332,6 +375,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
       displayText,
       spaceAfter,
       baseScale,
+      baselineShift,
       fontStyle: inline.fontStyle,
       fontWeight: inline.fontWeight,
       linkUrl,
@@ -351,7 +395,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
     metaById.set(id, { isStop, isPunct })
     if (!wordsBySentence[sentenceIndex]) wordsBySentence[sentenceIndex] = []
     wordsBySentence[sentenceIndex].push(words[words.length - 1])
-    if (isSentenceEnd(raw)) sentenceIndex++
+    if (!skipSentenceEnd && isSentenceEnd(raw)) sentenceIndex++
     tokenIndex++
   }
 
@@ -366,6 +410,7 @@ export function createWordsMarkdown(text: string): DocumentModel {
       displayText: label,
       spaceAfter: false,
       baseScale: 1,
+      baselineShift: 0,
       fontStyle: 'normal',
       fontWeight: 'normal',
       linkUrl: url,
@@ -402,12 +447,13 @@ export function createWordsMarkdown(text: string): DocumentModel {
     return null
   }
 
-  function parseLine(line: string): { style: BlockStyle; content: string } {
+  function parseLine(line: string): { style: BlockStyle; content: string; marker?: string } {
     const trimmed = line.trim()
     if (trimmed.startsWith('# ')) return { style: 'title', content: trimmed.replace(/^#\s+/, '') }
     if (trimmed.startsWith('## ')) return { style: 'heading', content: trimmed.replace(/^##\s+/, '') }
     if (/^[-*+]\s+/.test(trimmed)) return { style: 'bullet', content: trimmed.replace(/^[-*+]\s+/, '') }
-    if (/^\d+\.\s+/.test(trimmed)) return { style: 'bullet', content: trimmed.replace(/^\d+\.\s+/, '') }
+    const orderedMatch = trimmed.match(/^(\d+)\.\s+(.+)/)
+    if (orderedMatch) return { style: 'bullet', content: orderedMatch[2], marker: `${orderedMatch[1]}.` }
     return { style: 'body', content: trimmed }
   }
 
@@ -444,14 +490,15 @@ export function createWordsMarkdown(text: string): DocumentModel {
     }
     const lineWordStart = words.length
     const lineSentenceStart = sentenceIndex
-    const { style, content } = parseLine(trimmed)
+    const { style, content, marker } = parseLine(trimmed)
     const scale = baseScaleFor(style)
     let breakRows = 1
     if (style === 'title') breakRows = 2
     else if (style === 'heading') breakRows = 2
-    const lineText = style === 'bullet' ? `- ${content}` : content
+    const lineText = style === 'bullet' ? `${marker || '-'} ${content}` : content
     const segments = parseInlineMarkers(lineText)
     const blockWeight: InlineStyle['fontWeight'] = (style === 'title' || style === 'heading') ? 'bold' : 'normal'
+    let isLineStartWord = true
     for (const segment of segments) {
       const imageInfo = imageFromSegment(segment)
       if (imageInfo) {
@@ -476,7 +523,21 @@ export function createWordsMarkdown(text: string): DocumentModel {
         const token = match[0]
         const raw = token.replace(/\s+$/g, '')
         const spaceAfter = /\s+$/.test(token)
-        pushWord(raw, spaceAfter, scale, segmentStyle)
+        const isListMarker = style === 'bullet' && isLineStartWord && (/^[-*+]$/.test(raw) || /^\d+\.$/.test(raw))
+        const split = splitFootnoteToken(raw)
+        if (split) {
+          if (split.base) {
+            pushWord(split.base, false, scale, 0, segmentStyle, false)
+          }
+          const footnoteSpace = !split.punct && spaceAfter
+          pushWord(split.marker, footnoteSpace, scale * SUPERSCRIPT_SCALE, SUPERSCRIPT_SHIFT, segmentStyle, true)
+          if (split.punct) {
+            pushWord(split.punct, spaceAfter, scale, 0, segmentStyle, false)
+          }
+        } else {
+          pushWord(raw, spaceAfter, scale, 0, segmentStyle, isListMarker)
+        }
+        isLineStartWord = false
       }
     }
     if (words.length > lineWordStart && sentenceIndex === lineSentenceStart) sentenceIndex++
@@ -630,6 +691,7 @@ export function createWordsBible(text: string): DocumentModel {
         displayText: verseNum + ' ',
         spaceAfter: true,
         baseScale: 0.85,
+        baselineShift: 0,
         fontStyle: 'normal',
         fontWeight: 'normal',
         breakAfter: false,
@@ -666,6 +728,7 @@ export function createWordsBible(text: string): DocumentModel {
         displayText: token.displayText,
         spaceAfter: token.spaceAfter,
         baseScale: 1,
+        baselineShift: 0,
         fontStyle: 'normal',
         fontWeight: 'normal',
         linkUrl,
