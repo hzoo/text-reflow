@@ -215,7 +215,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontString = `${fontSize}px ${fontFamily}`
     ctx.font = fontString
     fontCache.clear()
-    wordWidthCache.clear() // Clear width cache on font change
     fontCache.set(`normal|normal|${fontSize}`, fontString)
 
     const sample = 'abcdefghijklmnopqrstuvwxyz'
@@ -500,6 +499,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function setModel(nextModel: DocumentModel, opts: { snap?: boolean } = {}) {
     model = nextModel
     renderState.model = model
+    imageCache.clear()
+    wordWidthCache.clear()
     applyScope(scope)
     layoutCurrentBeat()
     if (opts.snap) {
@@ -516,6 +517,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (update.model && update.model !== model) {
       model = update.model
       renderState.model = model
+      imageCache.clear()
+      wordWidthCache.clear()
       modelChanged = true
       needsLayout = true
     }
@@ -523,6 +526,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (update.fontFamily !== undefined && update.fontFamily !== fontFamily) {
       fontFamily = update.fontFamily || defaultFontFamily
       renderState.fontFamily = fontFamily
+      wordWidthCache.clear()
       needsLayout = true
     }
 
@@ -538,6 +542,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       const next = Math.max(10, Math.min(128, update.fontSize))
       if (next !== fontSize) {
         fontSize = next
+        wordWidthCache.clear()
         needsLayout = true
       }
     }
@@ -908,6 +913,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   function setFontSize(size: number) {
     fontSize = Math.max(10, Math.min(128, size))
+    wordWidthCache.clear()
     measureFont()
     layoutCurrentBeat()
   }
@@ -915,6 +921,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function setFontFamily(next?: string) {
     fontFamily = next || defaultFontFamily
     renderState.fontFamily = fontFamily
+    wordWidthCache.clear()
     measureFont()
     layoutCurrentBeat()
   }
