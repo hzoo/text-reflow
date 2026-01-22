@@ -601,6 +601,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setScope(nextScope: LayoutScope, opts: { snap?: boolean } = {}) {
+    prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
     applyScope(nextScope)
     layoutCurrentBeat()
     if (opts.snap) {
@@ -611,6 +612,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setModel(nextModel: DocumentModel, opts: { snap?: boolean } = {}) {
+    prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
     model = nextModel
     renderState.model = model
     imageCache.clear()
@@ -721,6 +723,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   // Hot-range animation: only animate words near viewport
   const HOT_RANGE_MARGIN_ROWS = 20
+  let prevAnimStart = 0, prevAnimEnd = 0
+  let prevFocusStart = 0, prevFocusEnd = 0
 
   function stepWordAnimation(dt: number): boolean {
     // smoothing factor; dt-normalized
@@ -744,19 +748,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       w.animScale += dScale * k
     }
 
-    // Snap words outside hot range to targets (no animation overhead)
-    for (let i = 0; i < start; i++) {
+    // Snap words newly entering hot range (were outside prev, now inside)
+    for (let i = start; i < Math.min(end, prevAnimStart); i++) {
       const w = words[i]
-      w.animX = w.targetX
-      w.animY = w.targetY
-      w.animScale = w.targetScale
+      w.animX = w.targetX; w.animY = w.targetY; w.animScale = w.targetScale
     }
-    for (let i = end; i < words.length; i++) {
+    for (let i = Math.max(start, prevAnimEnd); i < end; i++) {
       const w = words[i]
-      w.animX = w.targetX
-      w.animY = w.targetY
-      w.animScale = w.targetScale
+      w.animX = w.targetX; w.animY = w.targetY; w.animScale = w.targetScale
     }
+    prevAnimStart = start; prevAnimEnd = end
 
     // smooth padY transition
     const kPad = -Math.expm1(LN_0_001 * dt * panSpeed)
@@ -854,15 +855,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       w.focusDy += dDy * k
     }
 
-    // Snap words outside hot range
-    for (let i = 0; i < start; i++) {
+    // Snap words newly entering focus hot range
+    for (let i = start; i < Math.min(end, prevFocusStart); i++) {
       words[i].focusDy = sentenceYOffset(words[i].sentenceIndex)
       words[i].targetScale = 1.0
     }
-    for (let i = end; i < words.length; i++) {
+    for (let i = Math.max(start, prevFocusEnd); i < end; i++) {
       words[i].focusDy = sentenceYOffset(words[i].sentenceIndex)
       words[i].targetScale = 1.0
     }
+    prevFocusStart = start; prevFocusEnd = end
 
     return active
   }

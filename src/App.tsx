@@ -512,7 +512,7 @@ export function App({ canvas }: AppProps) {
         total={document$.value.sentenceCount}
       />
 
-      <DebugPanel active={debug$.value} data={debugData.value} />
+      {debug$.value && <DebugPanel active data={debugData.value} />}
       <PasteToast />
     </>
   )
