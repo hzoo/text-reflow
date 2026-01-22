@@ -139,6 +139,7 @@ export function App({ canvas }: AppProps) {
           engine.setSentence(0)
         }
       }
+      else if (key === 'e') engine.goToLastSentence()
       else if (key === 'i') { e.preventDefault(); openInput() }
       else if (e.key === 'Escape') hudCollapsed$.value = !hudCollapsed$.value
     }
@@ -454,7 +455,11 @@ export function App({ canvas }: AppProps) {
         onSubmitText={handleSubmitText}
       />
 
-      <CenterIndicator atEnd={isAtEnd.value} />
+      <CenterIndicator
+        atEnd={isAtEnd.value}
+        current={(globalSentence$.value ?? 0) + 1}
+        total={document$.value.sentenceCount}
+      />
 
       <DebugPanel active={debug$.value} data={debugData.value} />
     </>

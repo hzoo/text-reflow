@@ -23,9 +23,13 @@ export function ReadIndicator({ text }: ReadIndicatorProps) {
 
 interface CenterIndicatorProps {
   atEnd: boolean
+  current: number
+  total: number
 }
 
-export function CenterIndicator({ atEnd }: CenterIndicatorProps) {
+export function CenterIndicator({ atEnd, current, total }: CenterIndicatorProps) {
+  const displayText = atEnd ? `${current} / ${total} ✓` : `${current} / ${total}`
+
   return (
     <div
       class="
@@ -49,12 +53,12 @@ export function CenterIndicator({ atEnd }: CenterIndicatorProps) {
           class={`
             py-1 px-3
             bg-hud-bg border border-hud-border rounded-full
-            text-[11px] text-accent
+            text-[11px] text-accent tabular-nums
             backdrop-blur-xl shadow-hud
             ${atEnd ? 'bg-btn-hover' : ''}
           `}
         >
-          {atEnd ? '✓ end' : '•'}
+          {displayText}
         </div>
         <div class="text-[10px] text-hint">←→</div>
       </div>

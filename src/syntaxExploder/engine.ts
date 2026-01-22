@@ -145,7 +145,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     requestAnimationFrame(() => {
       imageRelayoutPending = false
       if (destroyed) return
-      layoutCurrentBeat()
+      layoutCurrentBeat(true, true)
     })
   }
 
@@ -337,6 +337,35 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     return model.wordsBySentence[sentenceIndex] || []
   }
 
+  /** Get row bounds for a sentence (O(1) via wordsBySentence) */
+  function getSentenceRowBounds(sentence: number): { minRow: number; maxRow: number } {
+    const sentenceWords = model.wordsBySentence[sentence] ?? []
+    let minRow = Infinity
+    let maxRow = -Infinity
+    for (const w of sentenceWords) {
+      const span = wordRowSpan(w)
+      minRow = Math.min(minRow, w.targetY)
+      maxRow = Math.max(maxRow, w.targetY + span - 1)
+    }
+    return { minRow, maxRow }
+  }
+
+  /** Find word nearest to viewport center (for anchor fallback) */
+  function findWordNearestViewportCenter(): Word | null {
+    const centerScreenY = window.innerHeight / 2
+    let best: Word | null = null
+    let bestDist = Infinity
+    for (const w of visibleWords) {
+      const screenY = metrics.padY + w.targetY * metrics.lineH + panY
+      const dist = Math.abs(screenY - centerScreenY)
+      if (dist < bestDist) {
+        bestDist = dist
+        best = w
+      }
+    }
+    return best
+  }
+
   function hoveredSentenceGlobal(): number | null {
     if (hoveredSentence == null) return null
     return sentenceOffset + hoveredSentence
@@ -415,10 +444,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
     }
 
-    // Apply best size
+    // Apply best size with anchor
     fontSize = bestSize
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
 
     notifyStateChange()
     return contentFits(visibleWords)
@@ -450,13 +479,38 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
     }
 
+    // Apply best size with anchor
     fontSize = bestSize
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
-  function layoutCurrentBeat(invalidateLayout = true) {
+  function layoutCurrentBeat(invalidateLayout = true, useAnchor = false) {
     const t0 = performance.now()
+
+    // BEFORE: Capture anchor position if requested
+    let anchorScreenY: number | null = null
+    let anchorSentence: number | null = null
+
+    if (useAnchor) {
+      const globalSentence = hoveredSentenceGlobal()
+      if (globalSentence != null) {
+        anchorSentence = globalSentence
+        const { minRow, maxRow } = getSentenceRowBounds(globalSentence)
+        if (minRow !== Infinity) {
+          const centerRow = (minRow + maxRow + 1) / 2
+          anchorScreenY = metrics.padY + centerRow * metrics.lineH + panY
+        }
+      } else {
+        // No sentence selected: anchor to word nearest viewport center
+        const centerWord = findWordNearestViewportCenter()
+        if (centerWord != null) {
+          anchorScreenY = metrics.padY + centerWord.targetY * metrics.lineH + panY
+          anchorSentence = centerWord.sentenceIndex
+        }
+      }
+    }
+
     measureFont()
     updateWordCols()
     const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
@@ -464,7 +518,22 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     sentenceCenterCache.clear()
     // Re-measure after layout to update vertical padding
     measureFont()
-    updatePanForSentence()
+
+    // AFTER: Restore anchor position or fallback to centering
+    if (anchorScreenY != null && anchorSentence != null) {
+      const { minRow, maxRow } = getSentenceRowBounds(anchorSentence)
+      if (minRow !== Infinity) {
+        const newCenterRow = (minRow + maxRow + 1) / 2
+        const newScreenY = metrics.padY + newCenterRow * metrics.lineH + panY
+        panY -= (newScreenY - anchorScreenY)
+        animPanY = panY // Sync to prevent animation drift
+      } else {
+        updatePanForSentence()
+      }
+    } else {
+      updatePanForSentence()
+    }
+
     addPerfSample('layoutMs', performance.now() - t0)
     // Throttle layout notifications for debug panel
     const now = performance.now()
@@ -510,9 +579,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     invalidate()
   }
 
-  function commit(update: EngineStateUpdate, opts: { snap?: boolean } = {}) {
+  function commit(update: EngineStateUpdate, opts: { snap?: boolean; useAnchor?: boolean } = {}) {
     let needsLayout = false
     let modelChanged = false
+    let shouldAnchor = false
 
     if (update.model && update.model !== model) {
       model = update.model
@@ -528,6 +598,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       renderState.fontFamily = fontFamily
       wordWidthCache.clear()
       needsLayout = true
+      shouldAnchor = true
     }
 
     if (update.maxContentWidth !== undefined) {
@@ -535,6 +606,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       if (next !== maxContentWidth) {
         maxContentWidth = next
         needsLayout = true
+        shouldAnchor = true
       }
     }
 
@@ -544,30 +616,38 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         fontSize = next
         wordWidthCache.clear()
         needsLayout = true
+        shouldAnchor = true
       }
     }
 
     if (update.beat && update.beat !== beat) {
       beat = update.beat
       needsLayout = true
+      shouldAnchor = true
     }
 
     if (update.bottomReserve !== undefined && update.bottomReserve !== bottomReserve) {
       bottomReserve = update.bottomReserve
       needsLayout = true
+      shouldAnchor = true
     }
 
     if (update.scope) {
       applyScope(update.scope)
       needsLayout = true
+      // scope change = intentional navigation, don't anchor
     } else if (modelChanged) {
       applyScope(scope)
       needsLayout = true
+      // model change = new doc, don't anchor
+      shouldAnchor = false
     }
 
     if (!needsLayout) return
 
-    layoutCurrentBeat()
+    // Use explicit opt if provided, otherwise auto-detect
+    const useAnchor = opts.useAnchor ?? shouldAnchor
+    layoutCurrentBeat(true, useAnchor)
     if (opts.snap) {
       snapToTargets()
     }
@@ -627,9 +707,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const sentenceWords = getSentenceWords(globalSentence)
     if (sentenceWords.length === 0) return
 
+    // First try to fit paragraph
     let minRow = Infinity
     let maxRow = -Infinity
-
     const paragraphId = sentenceWords[0].paragraphIndex
     const words = visibleWords
     for (let i = 0; i < words.length; i++) {
@@ -641,18 +721,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
     if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
 
+    // If paragraph too tall, fall back to sentence bounds
     const availableHeight = window.innerHeight - bottomReserve - 32
     const paragraphHeight = (maxRow - minRow + 1) * metrics.lineH
     if (paragraphHeight > availableHeight) {
-      minRow = Infinity
-      maxRow = -Infinity
-      for (let i = 0; i < sentenceWords.length; i++) {
-        const w = sentenceWords[i]
-        const span = wordRowSpan(w)
-        minRow = Math.min(minRow, w.targetY)
-        maxRow = Math.max(maxRow, w.targetY + span - 1)
-      }
-      if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
+      const bounds = getSentenceRowBounds(globalSentence)
+      if (bounds.minRow === Infinity) return
+      minRow = bounds.minRow
+      maxRow = bounds.maxRow
     }
 
     const top = metrics.padY + minRow * metrics.lineH + panY
@@ -714,7 +790,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const onResize = () => {
     applyDPR()
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
   canvas.addEventListener('click', onClick)
@@ -812,7 +888,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   function setBeat(next: BeatId) {
     beat = next
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
     notifyStateChange()
   }
 
@@ -904,7 +980,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function setMaxWidth(w: number) {
     maxContentWidth = Math.max(200, Math.min(4000, w))
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
   function getMaxWidth() {
@@ -915,7 +991,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontSize = Math.max(10, Math.min(128, size))
     wordWidthCache.clear()
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
   function setFontFamily(next?: string) {
@@ -923,7 +999,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     renderState.fontFamily = fontFamily
     wordWidthCache.clear()
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
   function getFontSize() {
@@ -933,7 +1009,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function setBottomReserve(h: number) {
     bottomReserve = h
     measureFont()
-    layoutCurrentBeat()
+    layoutCurrentBeat(true, true)
   }
 
   function destroy() {
