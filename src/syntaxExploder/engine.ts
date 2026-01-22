@@ -526,18 +526,19 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Re-measure after layout to update vertical padding
     measureFont()
 
+    const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
+
     // AFTER: Restore anchor position or fallback to centering
-    if (anchorScreenY != null && anchorSentence != null) {
+    if (lineHChanged) {
+      // Font size changed: center the sentence (like j/k)
+      updatePanForSentence()
+    } else if (anchorScreenY != null && anchorSentence != null) {
       const { minRow, maxRow } = getSentenceRowBounds(anchorSentence)
       if (minRow !== Infinity) {
         const newCenterRow = (minRow + maxRow + 1) / 2
         const newScreenY = metrics.padY + newCenterRow * metrics.lineH + panY
         panY -= (newScreenY - anchorScreenY)
-        // Only snap animPanY if lineH didn't change - let pan animate smoothly on font size changes
-        const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
-        if (!lineHChanged) {
-          animPanY = panY
-        }
+        animPanY = panY
       } else {
         updatePanForSentence()
       }
@@ -547,12 +548,15 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Rebase animY: solve oldVisualY = newVisualY
     if (useAnchor) {
-      const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
       if (lineHChanged) {
-        // Snap words to targets; animate only the pan
+        // Snap everything for instant transition
+        animPadY = metrics.padY
+        animPadX = metrics.padX
+        animPanY = panY
         for (const w of visibleWords) {
           w.animY = w.targetY
           w.animX = w.targetX
+          w.animScale = w.targetScale
         }
       } else if (oldLineH > 0 && metrics.lineH > 0) {
         // Original rebasing for non-lineH changes
@@ -734,32 +738,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       panY = 0
       return
     }
-    const sentenceWords = getSentenceWords(globalSentence)
-    if (sentenceWords.length === 0) return
 
-    // First try to fit paragraph
-    let minRow = Infinity
-    let maxRow = -Infinity
-    const paragraphId = sentenceWords[0].paragraphIndex
-    const words = visibleWords
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i]
-      if (w.paragraphIndex !== paragraphId) continue
-      const span = wordRowSpan(w)
-      minRow = Math.min(minRow, w.targetY)
-      maxRow = Math.max(maxRow, w.targetY + span - 1)
-    }
-    if (!Number.isFinite(minRow) || !Number.isFinite(maxRow)) return
-
-    // If paragraph too tall, fall back to sentence bounds
-    const availableHeight = window.innerHeight - bottomReserve - 32
-    const paragraphHeight = (maxRow - minRow + 1) * metrics.lineH
-    if (paragraphHeight > availableHeight) {
-      const bounds = getSentenceRowBounds(globalSentence)
-      if (bounds.minRow === Infinity) return
-      minRow = bounds.minRow
-      maxRow = bounds.maxRow
-    }
+    // Always center the sentence (cursor = center)
+    const bounds = getSentenceRowBounds(globalSentence)
+    if (bounds.minRow === Infinity) return
+    const minRow = bounds.minRow
+    const maxRow = bounds.maxRow
 
     const top = metrics.padY + minRow * metrics.lineH + panY
     const bottom = metrics.padY + (maxRow + 1) * metrics.lineH + panY
