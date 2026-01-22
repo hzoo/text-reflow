@@ -488,6 +488,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function layoutCurrentBeat(invalidateLayout = true, useAnchor = false) {
     const t0 = performance.now()
 
+    // Capture old metrics before layout for word animation rebasing
+    const oldLineH = metrics.lineH
+    const oldAnimPanY = animPanY
+    const oldAnimPadY = animPadY
+
     // BEFORE: Capture anchor position if requested
     let anchorScreenY: number | null = null
     let anchorSentence: number | null = null
@@ -532,6 +537,17 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
     } else {
       updatePanForSentence()
+    }
+
+    // Rebase animY: solve oldVisualY = newVisualY
+    // newAnimY = C + animY * R (linear transform, precompute constants)
+    if (useAnchor && oldLineH > 0 && metrics.lineH > 0) {
+      const R = oldLineH / metrics.lineH
+      const C = (oldAnimPadY + oldAnimPanY - metrics.padY - panY) / metrics.lineH
+      const words = visibleWords
+      for (let i = 0, len = words.length; i < len; i++) {
+        words[i].animY = C + words[i].animY * R
+      }
     }
 
     addPerfSample('layoutMs', performance.now() - t0)
