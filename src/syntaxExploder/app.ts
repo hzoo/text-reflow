@@ -16,11 +16,6 @@ const LAYOUT_ICONS: Record<BeatId, { svg: string; label: string }> = {
   },
 }
 
-const FOCUS_LABELS: Record<FocusStyleId, string> = {
-  gray: 'Dim',
-  redact: 'Hide',
-  none: 'Off',
-}
 
 const STORAGE_KEY = 'reflow-text'
 const STORAGE_MARKDOWN_KEY = 'reflow-markdown'
@@ -94,64 +89,75 @@ export function start(root: HTMLElement) {
   hud.id = 'hud'
   hud.innerHTML = `
     <div class="hud-handle"></div>
-    <div class="hud-progress">
-      <span class="hud-label">Read</span>
-      <span class="para-label" id="para-label"></span>
-    </div>
-    <div class="hud-section">
-      <span class="hud-label">Beat</span>
-      <div class="layout-picker" id="layout-picker">
-        ${(Object.keys(LAYOUT_ICONS) as BeatId[])
-          .map(id => `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`)
-          .join('')}
-      </div>
-    </div>
-    <div class="hud-section">
-      <span class="hud-label">Focus</span>
-      <div class="focus-picker" id="focus-picker">
-        <button class="focus-btn" id="focus-toggle" type="button">Dim</button>
-      </div>
-    </div>
-    <div class="hud-section">
-      <span class="hud-label">Size</span>
-      <div class="hud-scrubbers">
-        <span class="scrub-row">A <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span></span>
-        <span class="scrub-row">· W <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span></span>
-      </div>
-    </div>
-    <div class="hud-section">
-      <span class="hud-label">View</span>
-      <div class="hud-toggles">
-        <button class="hud-toggle" id="view-toggle" type="button">Full</button>
-      </div>
-    </div>
-    <div class="hud-keys">
-      <span>↑↓ nav · ←→ para · v view · f focus · esc hide</span>
-      <div class="hud-toggles">
-        <button class="hud-toggle" id="more-toggle" type="button">⋯</button>
-      </div>
-    </div>
-    <div class="hud-extra" id="hud-extra">
-      <div class="hud-section">
-        <span class="hud-label">More</span>
-        <div class="hud-toggles">
-          <button class="hud-toggle" id="debug-toggle" type="button">Debug</button>
-          <button class="hud-toggle" id="fullpush-toggle" type="button">Push</button>
+    <div class="hud-row">
+      <div class="hud-group">
+        <span class="hud-label">Layout</span>
+        <div class="layout-picker" id="layout-picker">
+          ${(Object.keys(LAYOUT_ICONS) as BeatId[])
+            .map(id => `<button class="layout-btn" data-beat="${id}" title="${LAYOUT_ICONS[id].label}">${LAYOUT_ICONS[id].svg}</button>`)
+            .join('')}
         </div>
       </div>
-
+      <div class="hud-group">
+        <span class="hud-label">View <kbd>V</kbd></span>
+        <div class="view-picker" id="view-picker">
+          <button class="view-btn" data-view="full" type="button">Full</button>
+          <button class="view-btn" data-view="paragraph" type="button">Split</button>
+        </div>
       </div>
-      <div class="hud-section">
-        <span class="hud-label">Speed</span>
-        <div class="hud-speeds">
-          <div class="scrub-row">Move <span class="scrub" id="move-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
-          <div class="scrub-row">Pan <span class="scrub" id="pan-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
-          <div class="scrub-row">Focus <span class="scrub" id="focus-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+    </div>
+    <div class="hud-row">
+      <div class="hud-group">
+        <span class="hud-label">Focus <kbd>F</kbd></span>
+        <div class="focus-picker" id="focus-picker">
+          <button class="focus-btn" data-focus="gray" type="button">Dim</button>
+          <button class="focus-btn" data-focus="redact" type="button">Hide</button>
+          <button class="focus-btn" data-focus="none" type="button">Off</button>
+        </div>
+      </div>
+    </div>
+    <div class="hud-row">
+      <div class="hud-group">
+        <span class="hud-label">Font</span>
+        <span class="scrub" id="size-scrub" data-min="12" data-max="48" data-step="1">20</span>
+      </div>
+      <div class="hud-group">
+        <span class="hud-label">Width</span>
+        <span class="scrub" id="width-scrub" data-min="300" data-max="1200" data-step="50">800</span>
+      </div>
+    </div>
+    <div class="hud-footer">
+      <button class="hud-toggle" id="input-toggle" type="button" title="Load text (I)">Text <kbd>I</kbd></button>
+      <span class="hud-hint">↑↓ nav · ←→ para</span>
+      <button class="hud-toggle" id="more-toggle" type="button">⋯</button>
+    </div>
+    <div class="hud-extra" id="hud-extra">
+      <div class="hud-row">
+        <div class="hud-group">
+          <span class="hud-label">Debug</span>
+          <div class="hud-toggles">
+            <button class="hud-toggle" id="debug-toggle" type="button">Log</button>
+            <button class="hud-toggle" id="fullpush-toggle" type="button">Push</button>
+          </div>
+        </div>
+      </div>
+      <div class="hud-row">
+        <div class="hud-group hud-group-full">
+          <span class="hud-label">Speed</span>
+          <div class="hud-speeds">
+            <div class="scrub-row">Move <span class="scrub" id="move-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+            <div class="scrub-row">Pan <span class="scrub" id="pan-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+            <div class="scrub-row">Focus <span class="scrub" id="focus-scrub" data-min="0.5" data-max="2" data-step="0.1">1.0</span></div>
+          </div>
         </div>
       </div>
     </div>
   `
   root.appendChild(hud)
+
+  const readIndicator = document.createElement('div')
+  readIndicator.id = 'read-indicator'
+  root.appendChild(readIndicator)
 
   const inputPanel = document.createElement('div')
   inputPanel.id = 'input-panel'
@@ -189,10 +195,9 @@ export function start(root: HTMLElement) {
   debugPanel.id = 'debug-panel'
   root.appendChild(debugPanel)
 
-  const paraLabel = hud.querySelector('#para-label') as HTMLElement
   const layoutPicker = hud.querySelector('#layout-picker') as HTMLElement
   const focusPicker = hud.querySelector('#focus-picker') as HTMLElement
-  const focusToggle = hud.querySelector('#focus-toggle') as HTMLButtonElement
+  const viewPicker = hud.querySelector('#view-picker') as HTMLElement
   const sizeScrub = hud.querySelector('#size-scrub') as HTMLSpanElement
   const widthScrub = hud.querySelector('#width-scrub') as HTMLSpanElement
   const textInput = inputPanel.querySelector('#text-input') as HTMLTextAreaElement
@@ -205,9 +210,9 @@ export function start(root: HTMLElement) {
   const paneUrl = inputPanel.querySelector('#pane-url') as HTMLDivElement
   const paneText = inputPanel.querySelector('#pane-text') as HTMLDivElement
   const moreToggle = hud.querySelector('#more-toggle') as HTMLButtonElement
+  const inputToggle = hud.querySelector('#input-toggle') as HTMLButtonElement
   const hudExtra = hud.querySelector('#hud-extra') as HTMLDivElement
   const debugToggle = hud.querySelector('#debug-toggle') as HTMLButtonElement
-  const viewToggle = hud.querySelector('#view-toggle') as HTMLButtonElement
   const fullPushToggle = hud.querySelector('#fullpush-toggle') as HTMLButtonElement
   const moveScrub = hud.querySelector('#move-scrub') as HTMLSpanElement
   const panScrub = hud.querySelector('#pan-scrub') as HTMLSpanElement
@@ -387,18 +392,18 @@ export function start(root: HTMLElement) {
   // Effects (reactive UI updates)
   // ═══════════════════════════════════════════════════════════
 
-  // Paragraph label
+  // Read indicator (top right)
   effect(() => {
     const paras = paragraphs$.value
     const current = currentPara$.value
     const isFull = viewMode$.value === 'full'
 
     if (isFull) {
-      paraLabel.textContent = 'Full View'
+      readIndicator.textContent = 'Full View'
     } else if (paras.length > 1) {
-      paraLabel.textContent = `¶ ${current + 1}/${paras.length}`
+      readIndicator.textContent = `¶ ${current + 1}/${paras.length}`
     } else {
-      paraLabel.textContent = ''
+      readIndicator.textContent = ''
     }
   })
 
@@ -535,9 +540,12 @@ export function start(root: HTMLElement) {
     `
   })
 
-  // Focus label
+  // View buttons
   effect(() => {
-    focusToggle.textContent = FOCUS_LABELS[focusStyle$.value]
+    const active = viewMode$.value
+    viewPicker.querySelectorAll('.view-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-view') === active)
+    })
   })
 
   // Scrubber displays
@@ -550,10 +558,6 @@ export function start(root: HTMLElement) {
     updateFocusDisplay()
   })
 
-  effect(() => {
-    const label = viewMode$.value === 'full' ? 'Split' : 'Full'
-    viewToggle.textContent = label
-  })
 
   effect(() => {
     fullPushToggle.classList.toggle('active', fullPush$.value)
@@ -686,8 +690,11 @@ export function start(root: HTMLElement) {
     if (beat) engine.setBeat(beat)
   })
 
-  focusToggle.addEventListener('click', () => {
-    engine.cycleFocusStyle()
+  focusPicker.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('.focus-btn')
+    if (!btn) return
+    const focus = btn.getAttribute('data-focus') as FocusStyleId
+    if (focus) engine.setFocusStyle(focus)
   })
 
   debugToggle.addEventListener('click', () => {
@@ -698,8 +705,11 @@ export function start(root: HTMLElement) {
     extraOpen$.value = !extraOpen$.value
   })
 
-  function toggleViewMode() {
-    const nextMode = viewMode$.value === 'full' ? 'paragraph' : 'full'
+  inputToggle.addEventListener('click', () => {
+    openInput()
+  })
+
+  function setViewMode(nextMode: 'full' | 'paragraph') {
     const counts = sentenceCounts$.value
     const global = globalSentence$.value
     let nextParaIndex = currentPara$.value
@@ -716,8 +726,17 @@ export function start(root: HTMLElement) {
     })
   }
 
-  viewToggle.addEventListener('click', () => {
-    toggleViewMode()
+  function toggleViewMode() {
+    setViewMode(viewMode$.value === 'full' ? 'paragraph' : 'full')
+  }
+
+  viewPicker.addEventListener('click', e => {
+    const btn = (e.target as HTMLElement).closest('.view-btn')
+    if (!btn) return
+    const view = btn.getAttribute('data-view') as 'full' | 'paragraph'
+    if (view && view !== viewMode$.value) {
+      setViewMode(view)
+    }
   })
 
   fullPushToggle.addEventListener('click', () => {
