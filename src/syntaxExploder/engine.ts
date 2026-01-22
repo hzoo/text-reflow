@@ -973,10 +973,15 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (animating) requestFrame()
   }
 
-  function start() {
+  function start(initialSentence?: number) {
     applyTheme()
     applyDPR()
     measureFont()
+
+    // Set initial sentence before layout so panY is computed correctly
+    if (initialSentence !== undefined && sentenceCountInScope > 0) {
+      hoveredSentence = clampIndex(initialSentence, sentenceCountInScope)
+    }
 
     // init anim state to targets
     layoutCurrentBeat()
@@ -987,6 +992,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       w.animX = w.targetX
       w.animY = w.targetY
       w.animScale = w.targetScale
+      w.focusDy = sentenceYOffset(w.sentenceIndex)
     }
 
     running = true

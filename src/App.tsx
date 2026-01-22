@@ -75,16 +75,34 @@ export function App({ canvas }: AppProps) {
 
     engineRef.current = engine
 
-    // Apply initial scope
+    // Compute initial sentence from saved prefs
+    const totalSentences = document$.value.sentenceCount
+    let initSentence: number | undefined
+    if (prefs.sentence > 0 && totalSentences > 0) {
+      const target = Math.min(prefs.sentence, totalSentences - 1)
+      if (isMobile() || viewMode$.value === 'paragraph') {
+        const counts = sentenceCounts$.value
+        const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
+        currentPara$.value = paragraphIndex
+        viewMode$.value = 'paragraph'
+        initSentence = localSentence
+      } else {
+        initSentence = target
+      }
+    }
+
+    // Apply initial scope (after viewMode/para are set)
+    if (isMobile()) {
+      viewMode$.value = 'paragraph'
+    }
     applyEngineScope(engine)
 
     if (isMobile()) {
-      viewMode$.value = 'paragraph'
       isAutoFont$.value = true
       engine.setSentenceFollowMode('reveal')
       engine.setBeat(initBeat)
       engine.setFocusStyle(initFocusStyle)
-      engine.start()
+      engine.start(initSentence)
       engine.autoFitFontSize()
       fontSize$.value = engine.getFontSize()
     } else {
@@ -95,22 +113,7 @@ export function App({ canvas }: AppProps) {
       engine.setPanSpeed(panSpeed$.value)
       engine.setFocusSpeed(focusSpeed$.value)
       engine.setFullFocusPush(fullPush$.value)
-      engine.start()
-    }
-
-    // Restore saved sentence position (clamped to current document)
-    const totalSentences = document$.value.sentenceCount
-    if (prefs.sentence > 0 && totalSentences > 0) {
-      const target = Math.min(prefs.sentence, totalSentences - 1)
-      if (viewMode$.value === 'paragraph') {
-        const counts = sentenceCounts$.value
-        const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
-        currentPara$.value = paragraphIndex
-        applyEngineScope(engine)
-        engine.setSentence(localSentence, { snap: true })
-      } else {
-        engine.setSentence(target, { snap: true })
-      }
+      engine.start(initSentence)
     }
 
     // Hook state change callback after init to avoid clobbering persisted values
