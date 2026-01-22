@@ -96,7 +96,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let fontString = ''
   const fontCache = new Map<string, string>()
 
-  // Word width cache: keyed by `fontKey|displayText`
+  // Word width cache: keyed by `fontKey|displayText` (LRU-capped)
+  const WORD_WIDTH_CACHE_MAX = 10000
   const wordWidthCache = new Map<string, number>()
 
   // Performance timing metrics (exposed for HUD)
@@ -199,7 +200,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let fullFocusPush = false
 
   function applyDPR() {
-    const dpr = Math.max(1, window.devicePixelRatio || 1)
+    // Cap DPR at 2 for mobile perf (3x is 2.25x more pixels than 2x)
+    const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), 2)
     const w = Math.floor(window.innerWidth)
     const h = Math.floor(window.innerHeight)
 
@@ -242,16 +244,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const blockW = metrics.maxCols * metrics.charW
     metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - blockW) / 2))
 
-    // Estimate vertical height based on current targets to center vertically
-    // Account for bottomReserve (HUD on mobile)
+    // Vertical padding uses cached maxRow (avoids re-scanning words)
+    updateVerticalPadding()
+  }
+
+  /** Update vertical padding using cached lastLayoutMaxRow */
+  function updateVerticalPadding() {
     const availableHeight = window.innerHeight - bottomReserve
-    let maxRow = 0
-    const words = visibleWords
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i]
-      if (w.targetY > maxRow) maxRow = w.targetY
-    }
-    const blockH = (maxRow + 1) * metrics.lineH
+    const blockH = (lastLayoutMaxRow + 1) * metrics.lineH
     metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
   }
 
@@ -301,6 +301,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       ctx.font = font
       const width = ctx.measureText(w.displayText).width
       w.pixelWidth = width
+      // LRU eviction: delete oldest when at capacity
+      if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
+        const oldest = wordWidthCache.keys().next().value
+        if (oldest !== undefined) wordWidthCache.delete(oldest)
+      }
       wordWidthCache.set(cacheKey, width)
     }
     ctx.font = fontString
@@ -523,8 +528,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
     applyTargets(visibleWords, layout)
     sentenceCenterCache.clear()
-    // Re-measure after layout to update vertical padding
-    measureFont()
+    // Update vertical padding using cached maxRow (no re-scan)
+    updateVerticalPadding()
 
     const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
 
@@ -689,15 +694,27 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     invalidate()
   }
 
+  // Cached maxRow from last applyTargets (avoids re-scan in measureFont)
+  let lastLayoutMaxRow = 0
+
   function applyTargets(words: Word[], targets: LayoutMap) {
+    let maxRow = 0
     for (let i = 0; i < words.length; i++) {
       const w = words[i]
       const t = targets.get(w.id)
       if (!t) continue
       w.targetX = t.col
       w.targetY = t.row
+      // Track maxRow including image row span
+      const span = wordRowSpan(w)
+      const endRow = w.targetY + span - 1
+      if (endRow > maxRow) maxRow = endRow
     }
+    lastLayoutMaxRow = maxRow
   }
+
+  // Hot-range animation: only animate words near viewport
+  const HOT_RANGE_MARGIN_ROWS = 20
 
   function stepWordAnimation(dt: number): boolean {
     // smoothing factor; dt-normalized
@@ -705,7 +722,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     let active = false
 
     const words = visibleWords
-    for (let i = 0; i < words.length; i++) {
+    // Find visible range with large margin for animation
+    const marginPx = HOT_RANGE_MARGIN_ROWS * metrics.lineH
+    const { start, end } = findVisibleRange(words, renderState, marginPx)
+
+    // Animate words in hot range
+    for (let i = start; i < end; i++) {
       const w = words[i]
       const dCol = w.targetX - w.animX
       const dRow = w.targetY - w.animY
@@ -714,6 +736,20 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       w.animX += dCol * k
       w.animY += dRow * k
       w.animScale += dScale * k
+    }
+
+    // Snap words outside hot range to targets (no animation overhead)
+    for (let i = 0; i < start; i++) {
+      const w = words[i]
+      w.animX = w.targetX
+      w.animY = w.targetY
+      w.animScale = w.targetScale
+    }
+    for (let i = end; i < words.length; i++) {
+      const w = words[i]
+      w.animX = w.targetX
+      w.animY = w.targetY
+      w.animScale = w.targetScale
     }
 
     // smooth padY transition
@@ -771,11 +807,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     let active = false
 
     const words = visibleWords
-    for (let i = 0; i < words.length; i++) {
+    // Find visible range with margin for focus animation
+    const marginPx = HOT_RANGE_MARGIN_ROWS * metrics.lineH
+    const { start, end } = findVisibleRange(words, renderState, marginPx)
+    const hoveredGlobal = hoveredSentenceGlobal()
+
+    // Animate words in hot range
+    for (let i = start; i < end; i++) {
       const w = words[i]
-      const hoveredGlobal = hoveredSentenceGlobal()
       const isHoveredSent = hoveredGlobal !== null && w.sentenceIndex === hoveredGlobal
-      
+
       // Update target scale (reduced from 1.8 to 1.35)
       if (isMagnifyBeat && isHoveredSent) {
         w.targetScale = 1.35
@@ -788,11 +829,26 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       if (Math.abs(dDy) > EPS) active = true
       w.focusDy += dDy * k
     }
+
+    // Snap words outside hot range
+    for (let i = 0; i < start; i++) {
+      words[i].focusDy = sentenceYOffset(words[i].sentenceIndex)
+      words[i].targetScale = 1.0
+    }
+    for (let i = end; i < words.length; i++) {
+      words[i].focusDy = sentenceYOffset(words[i].sentenceIndex)
+      words[i].targetScale = 1.0
+    }
+
     return active
   }
 
   function clear() {
+    // Clear in device-pixel space to avoid transform overhead
+    ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.restore()
   }
 
   const onClick = (e: MouseEvent) => {
