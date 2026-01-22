@@ -52,6 +52,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     text: '#111',
     link: '#1a5fb4',
     redacted: 'rgba(0, 0, 0, 0.1)',
+    highlight: '#4f46e5',
     imageBg: '#f1f1f1',
     imageBorder: '#c9c9c9',
     imageText: '#666',
@@ -61,6 +62,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     text: '#f5f2eb',
     link: '#86b7ff',
     redacted: 'rgba(255, 255, 255, 0.12)',
+    highlight: '#818cf8',
     imageBg: '#1b1c1f',
     imageBorder: '#3a3d44',
     imageText: '#c3c7cf',
@@ -531,7 +533,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         const newCenterRow = (minRow + maxRow + 1) / 2
         const newScreenY = metrics.padY + newCenterRow * metrics.lineH + panY
         panY -= (newScreenY - anchorScreenY)
-        animPanY = panY // Sync to prevent animation drift
+        // Only snap animPanY if lineH didn't change - let pan animate smoothly on font size changes
+        const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
+        if (!lineHChanged) {
+          animPanY = panY
+        }
       } else {
         updatePanForSentence()
       }
@@ -540,13 +546,21 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     // Rebase animY: solve oldVisualY = newVisualY
-    // newAnimY = C + animY * R (linear transform, precompute constants)
-    if (useAnchor && oldLineH > 0 && metrics.lineH > 0) {
-      const R = oldLineH / metrics.lineH
-      const C = (oldAnimPadY + oldAnimPanY - metrics.padY - panY) / metrics.lineH
-      const words = visibleWords
-      for (let i = 0, len = words.length; i < len; i++) {
-        words[i].animY = C + words[i].animY * R
+    if (useAnchor) {
+      const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
+      if (lineHChanged) {
+        // Snap words to targets; animate only the pan
+        for (const w of visibleWords) {
+          w.animY = w.targetY
+          w.animX = w.targetX
+        }
+      } else if (oldLineH > 0 && metrics.lineH > 0) {
+        // Original rebasing for non-lineH changes
+        const R = oldLineH / metrics.lineH
+        const C = (oldAnimPadY + oldAnimPanY - metrics.padY - panY) / metrics.lineH
+        for (let i = 0, len = visibleWords.length; i < len; i++) {
+          visibleWords[i].animY = C + visibleWords[i].animY * R
+        }
       }
     }
 
@@ -844,7 +858,20 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       // Binary search for visible range (with margin for smooth scroll)
       const { start, end } = findVisibleRange(words, renderState, metrics.lineH * 2)
       if (hoveredGlobal !== null && focusStyle !== 'none') {
-        if (focusStyle === 'gray') {
+        if (focusStyle === 'highlight') {
+          // unfocused: normal color
+          for (let i = start; i < end; i++) {
+            const w = words[i]
+            if (w.sentenceIndex !== hoveredGlobal) drawWordPlain(w)
+          }
+          // focused: highlight color
+          ctx.fillStyle = theme.highlight
+          for (let i = start; i < end; i++) {
+            const w = words[i]
+            if (w.sentenceIndex === hoveredGlobal) drawWordPlain(w)
+          }
+          ctx.fillStyle = theme.text
+        } else if (focusStyle === 'gray') {
           ctx.globalAlpha = 0.2
           for (let i = start; i < end; i++) {
             const w = words[i]
@@ -915,7 +942,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function cycleFocusStyle() {
-    const ids: FocusStyleId[] = ['gray', 'redact', 'none']
+    const ids: FocusStyleId[] = ['gray', 'highlight', 'redact', 'none']
     const idx = ids.indexOf(focusStyle)
     focusStyle = ids[(idx + 1) % ids.length]
     notifyStateChange()

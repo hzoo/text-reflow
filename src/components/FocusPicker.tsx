@@ -3,6 +3,7 @@ import type { FocusStyleId } from '../syntaxExploder/experiments'
 
 const FOCUS_OPTIONS: { id: FocusStyleId; label: string }[] = [
   { id: 'gray', label: 'Dim' },
+  { id: 'highlight', label: 'Highlight' },
   { id: 'redact', label: 'Hide' },
   { id: 'none', label: 'Off' },
 ]

@@ -5,6 +5,7 @@ export type CanvasTheme = {
   text: string
   link: string
   redacted: string
+  highlight: string
   imageBg: string
   imageBorder: string
   imageText: string
