@@ -25,6 +25,9 @@ if (initialMarkdown) localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
 
 // Core signals
 export const text$ = signal(savedText || DEFAULT_TEXT)
+
+// Fetch constitution as default if no saved text
+if (!savedText) loadDefaultText()
 export const currentPara$ = signal(0)
 export const inputMode$ = signal(false)
 export const hudCollapsed$ = signal(false)
@@ -110,4 +113,22 @@ export function mapSentenceToParagraph(sentenceIndex: number, counts: number[]):
   }
   const lastIndex = Math.max(0, counts.length - 1)
   return { paragraphIndex: lastIndex, localSentence: Math.max(0, (counts[lastIndex] || 1) - 1) }
+}
+
+// Load constitution as default text
+export async function loadDefaultText(): Promise<boolean> {
+  try {
+    const res = await fetch('/constitution.md')
+    if (!res.ok) return false
+    const raw = await res.text()
+    if (!raw.trim()) return false
+    localStorage.setItem(STORAGE_KEY, raw)
+    localStorage.setItem(STORAGE_MARKDOWN_KEY, '1')
+    text$.value = raw
+    markdownMode$.value = true
+    maxWidth$.value = READER_WIDTH
+    return true
+  } catch {
+    return false
+  }
 }
