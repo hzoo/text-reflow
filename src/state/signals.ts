@@ -33,16 +33,27 @@ type ReflowPrefs = {
   sentence: number
   liteMode: boolean
   liteVariant: 'scroll' | 'stories'
+  motionPreset: MotionPreset
+}
+
+export type MotionPreset = 'fluid' | 'natural' | 'snappy' | 'instant'
+export const MOTION_PRESETS: Record<MotionPreset, { move: number; pan: number; focus: number }> = {
+  fluid: { move: 0.6, pan: 0.6, focus: 0.6 },
+  natural: { move: 1.0, pan: 1.0, focus: 1.0 },
+  snappy: { move: 1.8, pan: 1.8, focus: 1.8 },
+  instant: { move: 3.0, pan: 3.0, focus: 3.0 },
 }
 
 const DEFAULT_PREFS: ReflowPrefs = {
   beat: 'reader', focusStyle: 'gray', viewMode: 'full',
   fullPush: false, moveSpeed: 1, panSpeed: 1, focusSpeed: 1, fontSize: 18,
   sentence: 0, liteMode: true, liteVariant: 'stories',
+  motionPreset: 'natural',
 }
 
 const BEATS: BeatId[] = ['reader', 'ladder']
 const FOCUS_STYLES: FocusStyleId[] = ['gray', 'redact', 'highlight', 'none']
+const MOTION_PRESET_IDS = Object.keys(MOTION_PRESETS)
 
 function loadPrefs(): Partial<ReflowPrefs> {
   try {
@@ -62,6 +73,7 @@ function loadPrefs(): Partial<ReflowPrefs> {
     if (typeof obj.sentence === 'number' && obj.sentence >= 0 && Number.isInteger(obj.sentence)) out.sentence = obj.sentence
     if (typeof obj.liteMode === 'boolean') out.liteMode = obj.liteMode
     if (obj.liteVariant === 'scroll' || obj.liteVariant === 'stories') out.liteVariant = obj.liteVariant
+    if (MOTION_PRESET_IDS.includes(obj.motionPreset)) out.motionPreset = obj.motionPreset
     return out
   } catch { return {} }
 }
@@ -95,6 +107,7 @@ export const inputTab$ = signal<'url' | 'text'>('url')
 export const viewMode$ = signal<'paragraph' | 'full'>(prefs.viewMode)
 export const extraOpen$ = signal(false)
 export const maxWidth$ = signal(initialMarkdown ? READER_WIDTH : DEFAULT_WIDTH)
+export const motionPreset$ = signal<MotionPreset>(prefs.motionPreset)
 export const moveSpeed$ = signal(prefs.moveSpeed)
 export const panSpeed$ = signal(prefs.panSpeed)
 export const focusSpeed$ = signal(prefs.focusSpeed)
@@ -103,6 +116,16 @@ export const isAutoFont$ = signal(false)
 export const fontSize$ = signal(prefs.fontSize)
 export const liteMode$ = signal(prefs.liteMode)
 export const liteVariant$ = signal<'scroll' | 'stories'>(prefs.liteVariant)
+
+// Sync motion speeds when preset changes
+effect(() => {
+  const preset = MOTION_PRESETS[motionPreset$.value]
+  if (preset) {
+    moveSpeed$.value = preset.move
+    panSpeed$.value = preset.pan
+    focusSpeed$.value = preset.focus
+  }
+})
 
 // Engine state signals (updated from engine callbacks)
 export const beat$ = signal<BeatId>(prefs.beat)
@@ -128,7 +151,7 @@ effect(() => {
 
 // Debounced preferences save
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-effect(() => {
+  effect(() => {
   const current: ReflowPrefs = {
     beat: beat$.value,
     focusStyle: focusStyle$.value,
@@ -141,6 +164,7 @@ effect(() => {
     sentence: globalSentence$.value ?? 0,
     liteMode: liteMode$.value,
     liteVariant: liteVariant$.value,
+    motionPreset: motionPreset$.value,
   }
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {

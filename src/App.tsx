@@ -15,8 +15,14 @@ import {
   markdownMode$,
   debug$,
   viewMode$,
+  maxWidth$,
   fullPush$,
   isAutoFont$,
+  beat$,
+  focusStyle$,
+  moveSpeed$,
+  panSpeed$,
+  focusSpeed$,
   sentence$,
   globalSentence$,
   layoutVersion$,
@@ -73,6 +79,35 @@ export function App({ engine }: AppProps) {
   // Sync debug with engine
   useSignalEffect(() => {
     engineRef.current?.commit({ debug: debug$.value })
+  })
+
+  // Sync motion speeds with engine
+  useSignalEffect(() => {
+    const engine = engineRef.current
+    if (!engine) return
+    engine.setMoveSpeed(moveSpeed$.value)
+    engine.setPanSpeed(panSpeed$.value)
+    engine.setFocusSpeed(focusSpeed$.value)
+  })
+
+  // Sync beat with engine
+  useSignalEffect(() => {
+    engineRef.current?.setBeat(beat$.value)
+  })
+
+  // Sync focus style with engine
+  useSignalEffect(() => {
+    engineRef.current?.setFocusStyle(focusStyle$.value)
+  })
+
+  // Sync font size with engine
+  useSignalEffect(() => {
+    engineRef.current?.setFontSize(fontSize$.value)
+  })
+
+  // Sync max width with engine
+  useSignalEffect(() => {
+    engineRef.current?.setMaxWidth(maxWidth$.value)
   })
 
   // Sync scope with engine

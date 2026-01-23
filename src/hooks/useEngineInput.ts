@@ -100,7 +100,7 @@ export function useEngineInput(deps: UseEngineInputDeps) {
     // --- Wheel ---
     const wheelAccum = { value: 0 }
     const handleWheel = (e: WheelEvent) => {
-      if (controlsOpen$.value) return
+      // Allow scrolling even when HUD is open
       if (Math.abs(e.deltaY) < 1) return
       e.preventDefault()
       stepByDelta(e.deltaY, wheelAccum, 60)
@@ -224,22 +224,22 @@ export function useEngineInput(deps: UseEngineInputDeps) {
 
     // --- Register ---
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('wheel', handleWheel, { passive: false })
     document.addEventListener('paste', handlePaste)
     document.addEventListener('dragover', handleDragOver)
     document.addEventListener('dragleave', handleDragLeave)
     document.addEventListener('drop', handleDrop)
-    canvas.addEventListener('wheel', handleWheel, { passive: false })
     canvas.addEventListener('touchstart', handleTouchStart, { passive: true })
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false })
     canvas.addEventListener('touchend', handleTouchEnd, { passive: true })
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('wheel', handleWheel)
       document.removeEventListener('paste', handlePaste)
       document.removeEventListener('dragover', handleDragOver)
       document.removeEventListener('dragleave', handleDragLeave)
       document.removeEventListener('drop', handleDrop)
-      canvas.removeEventListener('wheel', handleWheel)
       canvas.removeEventListener('touchstart', handleTouchStart)
       canvas.removeEventListener('touchmove', handleTouchMove)
       canvas.removeEventListener('touchend', handleTouchEnd)
