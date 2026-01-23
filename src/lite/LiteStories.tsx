@@ -1,5 +1,5 @@
 import { useCallback } from 'preact/hooks'
-import { document$, globalSentence$, hudCollapsed$ } from '../state/signals'
+import { document$, globalSentence$, controlsOpen$ } from '../state/signals'
 import { LiteProgress } from './LiteProgress'
 
 function sentenceText(sentenceIndex: number): string {
@@ -31,7 +31,7 @@ export function LiteStories() {
       if (cur < max) globalSentence$.value = cur + 1
     } else {
       // Center → toggle HUD
-      hudCollapsed$.value = !hudCollapsed$.value
+      controlsOpen$.value = !controlsOpen$.value
     }
   }, [])
 

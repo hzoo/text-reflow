@@ -25,6 +25,7 @@ type EngineStateUpdate = {
   fontSize?: number
   beat?: BeatId
   bottomReserve?: number
+  debug?: boolean
 }
 
 type LayoutScope =
@@ -40,6 +41,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let destroyed = false
   let beat: BeatId = 'reader'
   let focusStyle: FocusStyleId = 'gray'
+  let debug = false
 
   let hoveredSentence: number | null = null
   let model = initialModel
@@ -78,7 +80,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const handleColorSchemeChange = () => applyTheme()
 
   let onStateChange: ((beat: BeatId, focusStyle: FocusStyleId, sentence: number | null, total: number, sentenceOnlyMode: boolean) => void) | null = null
-  let onLayout: (() => void) | null = null
+  let     onLayout: (() => void) | null = null
+  let onFrame: ((firstWordY: number) => void) | null = null
   let lastLayoutNotify = 0
   const LAYOUT_NOTIFY_THROTTLE = 200 // ms
   let maxContentWidth = maxWidthOverride ?? 720
@@ -187,6 +190,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     maxCols: 80, // recalculated in measureFont
     padX: 24,
     padY: 24,
+    spaceW: 10,
   }
 
   const EPS = 0.001
@@ -226,6 +230,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const sample = 'abcdefghijklmnopqrstuvwxyz'
     const sampleWidth = ctx.measureText(sample).width
     metrics.charW = sampleWidth ? sampleWidth / sample.length : fontSize * 0.6
+    
+    // Measure standard space width for body text (scale 1.0)
+    metrics.spaceW = ctx.measureText(' ').width
+
     const m = ctx.measureText('M')
     const ascent = m.actualBoundingBoxAscent || fontSize * 0.75
     const descent = m.actualBoundingBoxDescent || fontSize * 0.25
@@ -305,14 +313,22 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         fontCache.set(fontKey, font)
       }
       ctx.font = font
-      const width = ctx.measureText(w.displayText).width
-      w.pixelWidth = width
+      const fullWidth = ctx.measureText(w.displayText).width
+
+      // Tighten spacing for headers: use unscaled space width (Space Locking)
+      if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
+        const textWidth = ctx.measureText(w.displayText.trimEnd()).width
+        // Lock space width to standard body size
+        w.pixelWidth = textWidth + metrics.spaceW
+      } else {
+        w.pixelWidth = fullWidth
+      }
       // LRU eviction: delete oldest when at capacity
       if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
         const oldest = wordWidthCache.keys().next().value
         if (oldest !== undefined) wordWidthCache.delete(oldest)
       }
-      wordWidthCache.set(cacheKey, width)
+      wordWidthCache.set(cacheKey, w.pixelWidth)
     }
     ctx.font = fontString
     addPerfSample('updateWordColsMs', performance.now() - t0)
@@ -408,6 +424,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     get fontSize() { return fontSize },
     get hoveredSentence() { return hoveredSentenceGlobal() },
     get focusStyle() { return focusStyle },
+    get debug() { return debug },
     theme,
   }
   const { drawWord, drawWordPlain, drawWordRedactRect, wordUnder } = createRenderer(renderState)
@@ -677,6 +694,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       bottomReserve = update.bottomReserve
       needsLayout = true
       shouldAnchor = true
+    }
+
+    if (update.debug !== undefined && update.debug !== debug) {
+      debug = update.debug
+      invalidate()
     }
 
     if (update.scope) {
@@ -970,6 +992,15 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (animating) requestFrame()
+
+    // Notify frame progress (for DOM syncing)
+    if (onFrame) {
+      const firstWord = model.words[0]
+      if (firstWord) {
+        const y = animPadY + firstWord.animY * metrics.lineH + animPanY
+        onFrame(y)
+      }
+    }
   }
 
   function start(initialSentence?: number) {
@@ -980,6 +1011,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Set initial sentence before layout so panY is computed correctly
     if (initialSentence !== undefined && sentenceCountInScope > 0) {
       hoveredSentence = clampIndex(initialSentence, sentenceCountInScope)
+    } else if (hoveredSentence === null && sentenceCountInScope > 0) {
+      hoveredSentence = 0 // auto-focus first sentence
     }
 
     // init anim state to targets
@@ -996,9 +1029,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     running = true
     needsRedraw = true
-    if (hoveredSentence === null && sentenceCountInScope > 0) {
-      hoveredSentence = 0 // auto-focus first sentence
-    }
     notifyStateChange()
     requestFrame()
   }
@@ -1159,5 +1189,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }),
     set onStateChange(fn: typeof onStateChange) { onStateChange = fn },
     set onLayout(fn: typeof onLayout) { onLayout = fn },
+    set onFrame(fn: typeof onFrame) { onFrame = fn },
   }
 }

@@ -1,11 +1,11 @@
-import { liteMode$, liteVariant$, hudCollapsed$, inputMode$, PREFS_KEY } from '../state/signals'
+import { liteMode$, liteVariant$, controlsOpen$, activeTab$, PREFS_KEY } from '../state/signals'
 
 export function LiteHUD() {
   const variant = liteVariant$.value
-  const collapsed = hudCollapsed$.value
+  const open = controlsOpen$.value
 
   return (
-    <div class={`lite-hud${collapsed ? ' collapsed' : ''}`}>
+    <div class={`lite-hud${!open ? ' collapsed' : ''}`}>
       <button
         class={`lite-hud-btn${variant === 'stories' ? ' active' : ''}`}
         onClick={() => { liteVariant$.value = 'stories' }}
@@ -20,7 +20,10 @@ export function LiteHUD() {
       </button>
       <button
         class="lite-hud-btn"
-        onClick={() => { inputMode$.value = true }}
+        onClick={() => { 
+          activeTab$.value = 'library'
+          controlsOpen$.value = true 
+        }}
       >
         Text
       </button>

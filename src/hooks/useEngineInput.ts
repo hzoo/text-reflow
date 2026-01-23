@@ -2,8 +2,7 @@ import { useEffect } from 'preact/hooks'
 import type { Signal } from '@preact/signals'
 import type { createEngine } from '../syntaxExploder/engine'
 import {
-  inputMode$,
-  hudCollapsed$,
+  controlsOpen$,
   viewMode$,
   currentPara$,
   sentenceCounts$,
@@ -58,7 +57,6 @@ export function useEngineInput(deps: UseEngineInputDeps) {
 
     // --- Keyboard ---
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (inputMode$.value) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -82,7 +80,7 @@ export function useEngineInput(deps: UseEngineInputDeps) {
         if (viewMode$.value === 'full') engine.setSentence(0)
       }
       else if (key === 'e') engine.goToLastSentence()
-      else if (key === 'i') { e.preventDefault(); deps.openInput() }
+      else if (key === 'i' || key === 'm' || key === '?') { e.preventDefault(); deps.openInput() }
       else if (key === '=' || key === '+') {
         isAutoFont$.value = false
         const next = Math.min(128, fontSize$.value + 2)
@@ -95,14 +93,14 @@ export function useEngineInput(deps: UseEngineInputDeps) {
         fontSize$.value = next
         engine.setFontSize(next)
       }
-      else if (key === '?') hudCollapsed$.value = !hudCollapsed$.value
-      else if (e.key === 'Escape') { if (!hudCollapsed$.value) hudCollapsed$.value = true }
+      else if (key === '?') controlsOpen$.value = !controlsOpen$.value
+      else if (e.key === 'Escape') { if (controlsOpen$.value) controlsOpen$.value = false }
     }
 
     // --- Wheel ---
     const wheelAccum = { value: 0 }
     const handleWheel = (e: WheelEvent) => {
-      if (inputMode$.value) return
+      if (controlsOpen$.value) return
       if (Math.abs(e.deltaY) < 1) return
       e.preventDefault()
       stepByDelta(e.deltaY, wheelAccum, 60)
@@ -158,7 +156,7 @@ export function useEngineInput(deps: UseEngineInputDeps) {
 
       const absX = Math.abs(dx), absY = Math.abs(dy)
       if (absX < 50 && absY < 50) {
-        hudCollapsed$.value = !hudCollapsed$.value
+        controlsOpen$.value = !controlsOpen$.value
         return
       }
 
@@ -183,7 +181,7 @@ export function useEngineInput(deps: UseEngineInputDeps) {
 
     // --- Paste ---
     const handlePaste = (e: ClipboardEvent) => {
-      if (inputMode$.value) return
+      if (controlsOpen$.value) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName

@@ -2,6 +2,50 @@ import { marked } from 'marked'
 
 // ─── Public: Jina Preamble ─────────────────────────────────────────────────
 
+export type ArticleMetadata = {
+  title: string
+  url?: string
+  hostname?: string
+}
+
+export function extractMetadata(raw: string): ArticleMetadata {
+  const normalized = raw.replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  
+  let title = ''
+  let url = ''
+  let hostname = ''
+
+  // Look for Jina preamble - check first 20 lines to be safe
+  const preambleLines = lines.slice(0, 20)
+  
+  for (const line of preambleLines) {
+    const trimmed = line.trim()
+    if (trimmed.toLowerCase().startsWith('title:')) {
+      title = trimmed.slice(6).trim()
+    } else if (trimmed.toLowerCase().startsWith('url source:')) {
+      url = trimmed.slice(11).trim()
+      try {
+        hostname = new URL(url).hostname.replace(/^www\./, '')
+      } catch {
+        hostname = url
+      }
+    }
+  }
+
+  // Fallback to first # header if no Jina title
+  if (!title) {
+    const firstHeader = lines.find(l => l.trim().startsWith('# '))
+    if (firstHeader) {
+      title = firstHeader.trim().replace(/^#\s+/, '')
+    }
+  }
+
+  if (!title) title = 'Pasted Text'
+
+  return { title, url, hostname }
+}
+
 export function stripJinaPreamble(raw: string): string {
   const normalized = raw.replace(/\r\n/g, '\n')
   const lines = normalized.split('\n')

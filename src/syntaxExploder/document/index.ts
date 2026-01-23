@@ -12,4 +12,4 @@ export { parseText, parseMarkdownText, splitParagraphs, parseInlineMarkers, stri
 export { parseBibleText, detectBibleVerses, splitByVerseNumber } from './bible'
 
 // Markdown pipeline
-export { stripJinaPreamble, markdownToReadingText, markdownToParagraphs } from './markdown-pipeline'
+export { stripJinaPreamble, markdownToReadingText, markdownToParagraphs, extractMetadata } from './markdown-pipeline'

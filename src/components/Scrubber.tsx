@@ -11,7 +11,7 @@ interface ScrubberProps {
 }
 
 export function Scrubber({ min, max, step, value, defaultValue, onChange, class: className = '' }: ScrubberProps) {
-  const { onPointerDown } = useScrubber({
+  const { onPointerDown, isActive } = useScrubber({
     min,
     max,
     step,
@@ -20,21 +20,35 @@ export function Scrubber({ min, max, step, value, defaultValue, onChange, class:
     defaultVal: defaultValue,
   })
 
+  const active = isActive()
   const displayValue = step < 1 ? value.toFixed(1) : String(Math.round(value))
 
   return (
-    <span
+    <div 
       onPointerDown={onPointerDown}
       class={`
-        cursor-ew-resize px-1 py-0.5 rounded
-        bg-btn-bg hover:bg-btn-hover
-        min-w-7 text-center select-none touch-none
-        text-accent font-medium
-        max-sm:min-h-11 max-sm:min-w-11 max-sm:px-2.5 max-sm:flex max-sm:items-center max-sm:justify-center
+        group flex items-center gap-1.5 h-7 px-2 rounded-full
+        bg-btn-bg hover:bg-btn-hover border border-hud-border/10
+        cursor-ew-resize select-none touch-none transition-all
+        ${active ? 'bg-accent border-accent shadow-lg scale-[1.02]' : ''}
         ${className}
       `}
     >
-      {displayValue}
-    </span>
+      <span class={`
+        text-[10px] font-black tabular-nums leading-none min-w-[22px] text-center
+        ${active ? 'text-bg' : 'text-accent'}
+      `}>
+        {displayValue}
+      </span>
+      <div class={`
+        flex-1 h-1 rounded-full relative overflow-hidden
+        ${active ? 'bg-bg/30' : 'bg-accent/15'}
+      `}>
+        <div 
+          class={`absolute inset-y-0 left-0 rounded-full transition-all duration-75 ${active ? 'bg-bg' : 'bg-accent'}`} 
+          style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+        />
+      </div>
+    </div>
   )
 }

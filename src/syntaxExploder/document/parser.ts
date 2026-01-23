@@ -404,8 +404,8 @@ export function parseMarkdownText(text: string): DocumentModel {
   }
 
   function baseScaleFor(style: BlockStyle): number {
-    if (style === 'title') return 1.12
-    if (style === 'heading') return 1.06
+    if (style === 'title') return 1.08
+    if (style === 'heading') return 1.04
     return 1
   }
 
@@ -439,7 +439,7 @@ export function parseMarkdownText(text: string): DocumentModel {
     const { style, content, marker } = parseLine(trimmed)
     const scale = baseScaleFor(style)
     let breakRows = 1
-    if (style === 'title') breakRows = 2
+    if (style === 'title') breakRows = 3
     else if (style === 'heading') breakRows = 2
     const lineText = style === 'bullet' ? `${marker || '-'} ${content}` : content
     const segments = parseInlineMarkers(lineText)

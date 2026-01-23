@@ -1,5 +1,5 @@
 import { signal, computed, effect } from '@preact/signals'
-import { parseDocument, parseText, parseMarkdownText, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, markdownToParagraphs, markdownToReadingText, type DocumentModel } from '../syntaxExploder/document'
+import { parseDocument, parseText, parseMarkdownText, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, markdownToParagraphs, markdownToReadingText, extractMetadata, type DocumentModel } from '../syntaxExploder/document'
 import { type BeatId, type FocusStyleId } from '../syntaxExploder/experiments'
 import { migrateOldStorage, activeEntry$, library$, addEntry } from './library'
 
@@ -11,6 +11,14 @@ export const DEFAULT_WIDTH = 720
 export const READER_WIDTH = 680
 export const MOBILE_BOTTOM_RESERVE = 60
 export const READER_FONT = '"Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif'
+
+// ─── Article State ─────────────────────────────────────────────────────────
+export const articleMetadata$ = computed(() => extractMetadata(text$.value))
+export const activeParagraphIndex$ = computed(() => {
+  const sentence = globalSentence$.value ?? 0
+  const counts = sentenceCounts$.value
+  return mapSentenceToParagraph(sentence, counts).paragraphIndex
+})
 
 // Preferences persistence
 type ReflowPrefs = {
@@ -71,13 +79,15 @@ const initialText = initial?.content || DEFAULT_TEXT
 const initialMarkdown = initial?.isMarkdown ?? false
 
 // Core signals
+export type TabId = 'style' | 'library'
+
 export const text$ = signal(initialText)
 
 // Fetch constitution as default if no library entries
 if (library$.value.length === 0) loadDefaultText()
 export const currentPara$ = signal(0)
-export const inputMode$ = signal(false)
-export const hudCollapsed$ = signal(false)
+export const controlsOpen$ = signal(false)
+export const activeTab$ = signal<TabId>('style')
 export const markdownMode$ = signal(initialMarkdown)
 
 export const debug$ = signal(false)
@@ -99,6 +109,7 @@ export const beat$ = signal<BeatId>(prefs.beat)
 export const focusStyle$ = signal<FocusStyleId>(prefs.focusStyle)
 export const sentence$ = signal<number | null>(0)
 export const globalSentence$ = signal<number | null>(null)
+export const firstWordY$ = signal<number>(0)
 export const sentenceCount$ = signal(1)
 export const sentenceOnlyMode$ = signal(false)
 export const layoutVersion$ = signal(0) // Bumped on layout for debug panel refresh

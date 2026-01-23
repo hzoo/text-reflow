@@ -1,5 +1,5 @@
 import { signal, computed, batch } from '@preact/signals'
-import { stripJinaPreamble } from '../syntaxExploder/document'
+import { extractMetadata } from '../syntaxExploder/document'
 
 export interface TextEntry {
   id: string
@@ -28,6 +28,9 @@ function saveLibrary(entries: TextEntry[]) {
 }
 
 function deriveTitle(content: string, source?: string): string {
+  const meta = extractMetadata(content)
+  if (meta.title && meta.title !== 'Pasted Text') return meta.title
+  
   if (source) {
     try { return new URL(source).hostname.replace(/^www\./, '') } catch {}
   }
@@ -99,7 +102,7 @@ export async function fetchUrlToEntry(url: string): Promise<TextEntry> {
     const errorText = await response.text()
     throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
   }
-  const raw = stripJinaPreamble((await response.text()).trim())
+  const raw = (await response.text()).trim()
   if (!raw) throw new Error('No content returned.')
   return addEntry({ content: raw, isMarkdown: true, source: url })
 }

@@ -25,6 +25,7 @@ import {
   fullPush$,
   document$,
   globalSentence$,
+  firstWordY$,
   sentenceCounts$,
   mapSentenceToParagraph,
   prefs,
@@ -90,6 +91,10 @@ if (isLite) {
 
   engine.onLayout = () => {
     layoutVersion$.value++
+  }
+
+  engine.onFrame = (y) => {
+    firstWordY$.value = y
   }
 
   // Compute initial sentence from saved prefs

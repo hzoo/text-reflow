@@ -9,6 +9,7 @@ export type Metrics = {
   maxCols: number
   padX: number
   padY: number
+  spaceW: number
 }
 
 export type LayoutTarget = { col: number; row: number }
