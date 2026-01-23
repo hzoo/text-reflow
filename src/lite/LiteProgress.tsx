@@ -3,22 +3,14 @@ interface LiteProgressProps {
   total: number
 }
 
-const MAX_SEGMENTS = 200
-
 export function LiteProgress({ current, total }: LiteProgressProps) {
   if (total <= 0) return null
-  const segments = Math.min(total, MAX_SEGMENTS)
-  const filledRatio = (current + 1) / total
-  const filledCount = Math.round(filledRatio * segments)
+  const clamped = Math.max(0, Math.min(current + 1, total))
+  const pct = (clamped / total) * 100
 
   return (
     <div class="lite-progress">
-      {Array.from({ length: segments }, (_, i) => (
-        <div
-          key={i}
-          class={`lite-progress-segment${i < filledCount ? ' filled' : ''}`}
-        />
-      ))}
+      <div class="lite-progress-fill" style={{ width: `${pct}%` }} />
     </div>
   )
 }

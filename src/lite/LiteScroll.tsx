@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'preact/hooks'
+import { useEffect, useMemo, useRef } from 'preact/hooks'
 import { document$, globalSentence$ } from '../state/signals'
 import type { Word } from '../syntaxExploder/document/types'
 
@@ -30,13 +30,12 @@ function buildParagraphs(wordsBySentence: Word[][]): ParagraphData[] {
 export function LiteScroll() {
   const containerRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
+  const prevActiveRef = useRef<HTMLElement | null>(null)
 
   const doc = document$.value
-  const paragraphs = buildParagraphs(doc.wordsBySentence)
-  const activeSentence = globalSentence$.value ?? 0
+  const paragraphs = useMemo(() => buildParagraphs(doc.wordsBySentence), [doc])
 
   useEffect(() => {
-    // Enable native scroll
     document.body.style.overflow = 'auto'
     document.body.style.overscrollBehavior = 'auto'
     return () => {
@@ -49,23 +48,46 @@ export function LiteScroll() {
     const container = containerRef.current
     if (!container) return
 
+    const spans = container.querySelectorAll<HTMLElement>('[data-sentence]')
+
+    // Apply initial active state from persisted signal
+    const initial = globalSentence$.peek() ?? 0
+    for (const span of spans) {
+      if (Number(span.getAttribute('data-sentence')) === initial) {
+        span.classList.add('active')
+        prevActiveRef.current = span
+        break
+      }
+    }
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
+        let best: IntersectionObserverEntry | null = null
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const si = Number(entry.target.getAttribute('data-sentence'))
-            if (!isNaN(si)) globalSentence$.value = si
+          if (entry.isIntersecting && (!best || entry.intersectionRatio > best.intersectionRatio)) {
+            best = entry
           }
         }
+        if (!best) return
+
+        const target = best.target as HTMLElement
+        if (target === prevActiveRef.current) return
+
+        prevActiveRef.current?.classList.remove('active')
+        target.classList.add('active')
+        prevActiveRef.current = target
+
+        const si = Number(target.getAttribute('data-sentence'))
+        if (!isNaN(si)) globalSentence$.value = si
       },
       { rootMargin: '-40% 0px -40% 0px' }
     )
 
-    const spans = container.querySelectorAll('[data-sentence]')
     spans.forEach(el => observerRef.current!.observe(el))
 
     return () => {
       observerRef.current?.disconnect()
+      prevActiveRef.current = null
     }
   }, [doc])
 
@@ -77,7 +99,7 @@ export function LiteScroll() {
             <span
               key={s.sentenceIndex}
               data-sentence={s.sentenceIndex}
-              class={`lite-sentence${s.sentenceIndex === activeSentence ? ' active' : ''}`}
+              class="lite-sentence"
             >
               {s.text}{' '}
             </span>

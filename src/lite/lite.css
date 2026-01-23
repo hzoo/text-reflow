@@ -57,21 +57,17 @@
   top: 8px;
   left: 12px;
   right: 12px;
-  display: flex;
-  gap: 2px;
-  z-index: 10;
-}
-
-.lite-progress-segment {
-  flex: 1;
   height: 2px;
   border-radius: 1px;
   background: var(--color-btn-bg);
-  transition: background 0.15s ease;
+  overflow: hidden;
+  z-index: 10;
 }
 
-.lite-progress-segment.filled {
+.lite-progress-fill {
+  height: 100%;
   background: var(--color-accent);
+  transition: width 0.15s ease;
 }
 
 .lite-hud {
