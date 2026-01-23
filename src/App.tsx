@@ -54,6 +54,7 @@ interface AppProps {
 
 export function App({ canvas }: AppProps) {
   const engineRef = useRef<ReturnType<typeof createEngine> | null>(null)
+  const skipInitialSync = useRef(true)
 
   // Initialize engine once
   useEffect(() => {
@@ -97,6 +98,18 @@ export function App({ canvas }: AppProps) {
     }
     applyEngineScope(engine)
 
+    // Connect state change callback before start() so start's notifyStateChange
+    // immediately populates signals (prevents stale values on first render)
+    engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
+      batch(() => {
+        beat$.value = b
+        focusStyle$.value = f
+        sentence$.value = s
+        sentenceCount$.value = total
+        sentenceOnlyMode$.value = sOnly
+      })
+    }
+
     if (isMobile()) {
       isAutoFont$.value = true
       engine.setSentenceFollowMode('reveal')
@@ -114,17 +127,6 @@ export function App({ canvas }: AppProps) {
       engine.setFocusSpeed(focusSpeed$.value)
       engine.setFullFocusPush(fullPush$.value)
       engine.start(initSentence)
-    }
-
-    // Hook state change callback after init to avoid clobbering persisted values
-    engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
-      batch(() => {
-        beat$.value = b
-        focusStyle$.value = f
-        sentence$.value = s
-        sentenceCount$.value = total
-        sentenceOnlyMode$.value = sOnly
-      })
     }
 
     return () => { engine.destroy() }
@@ -151,9 +153,15 @@ export function App({ canvas }: AppProps) {
   useSignalEffect(() => {
     const engine = engineRef.current
     if (!engine) return
+    // Read signals to establish subscriptions
     void document$.value
     void viewMode$.value
     void markdownMode$.value
+    // Skip the initial fire — engine.start() already positioned everything
+    if (skipInitialSync.current) {
+      skipInitialSync.current = false
+      return
+    }
     applyEngineScope(engine, { snap: true })
     // Re-fit font if auto mode is on
     if (isAutoFont$.value) {
