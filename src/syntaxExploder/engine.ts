@@ -1123,6 +1123,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   return {
+    canvas,
     start,
     setBeat,
     setFocusStyle,

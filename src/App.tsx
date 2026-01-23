@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'preact/hooks'
+import { useRef, useCallback } from 'preact/hooks'
 import { useComputed, useSignalEffect, batch, untracked } from '@preact/signals'
 import { HUD } from './components/HUD'
 import { InputPanel } from './components/InputPanel'
@@ -27,8 +27,6 @@ import {
   focusStyle$,
   sentence$,
   globalSentence$,
-  sentenceCount$,
-  sentenceOnlyMode$,
   layoutVersion$,
   fontSize$,
   moveSpeed$,
@@ -40,101 +38,25 @@ import {
   sentenceCounts$,
   getSentenceOffset,
   mapSentenceToParagraph,
-  prefs,
-  isMobile,
   READER_FONT,
 } from './state/signals'
 
 // Default monospace font (matches engine default)
-const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+export const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+
+type Engine = ReturnType<typeof createEngine>
 
 interface AppProps {
-  canvas: HTMLCanvasElement
+  engine: Engine
 }
 
-export function App({ canvas }: AppProps) {
-  const engineRef = useRef<ReturnType<typeof createEngine> | null>(null)
+export function App({ engine }: AppProps) {
+  const engineRef = useRef(engine)
   const skipInitialSync = useRef(true)
-
-  // Initialize engine once
-  useEffect(() => {
-    // Capture persisted values before engine init can overwrite signals
-    const initBeat = beat$.value
-    const initFocusStyle = focusStyle$.value
-    const initFontSize = fontSize$.value
-
-    const engine = createEngine({
-      canvas,
-      words: document$.value,
-      fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
-      maxContentWidth: maxWidth$.value,
-    })
-
-    engine.onLayout = () => {
-      layoutVersion$.value++
-    }
-
-    engineRef.current = engine
-
-    // Compute initial sentence from saved prefs
-    const totalSentences = document$.value.sentenceCount
-    let initSentence: number | undefined
-    if (prefs.sentence > 0 && totalSentences > 0) {
-      const target = Math.min(prefs.sentence, totalSentences - 1)
-      if (isMobile() || viewMode$.value === 'paragraph') {
-        const counts = sentenceCounts$.value
-        const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
-        currentPara$.value = paragraphIndex
-        viewMode$.value = 'paragraph'
-        initSentence = localSentence
-      } else {
-        initSentence = target
-      }
-    }
-
-    // Apply initial scope (after viewMode/para are set)
-    if (isMobile()) {
-      viewMode$.value = 'paragraph'
-    }
-    applyEngineScope(engine)
-
-    // Connect state change callback before start() so start's notifyStateChange
-    // immediately populates signals (prevents stale values on first render)
-    engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
-      batch(() => {
-        beat$.value = b
-        focusStyle$.value = f
-        sentence$.value = s
-        sentenceCount$.value = total
-        sentenceOnlyMode$.value = sOnly
-      })
-    }
-
-    if (isMobile()) {
-      isAutoFont$.value = true
-      engine.setSentenceFollowMode('reveal')
-      engine.setBeat(initBeat)
-      engine.setFocusStyle(initFocusStyle)
-      engine.start(initSentence)
-      engine.autoFitFontSize()
-      fontSize$.value = engine.getFontSize()
-    } else {
-      engine.setFontSize(initFontSize)
-      engine.setBeat(initBeat)
-      engine.setFocusStyle(initFocusStyle)
-      engine.setMoveSpeed(moveSpeed$.value)
-      engine.setPanSpeed(panSpeed$.value)
-      engine.setFocusSpeed(focusSpeed$.value)
-      engine.setFullFocusPush(fullPush$.value)
-      engine.start(initSentence)
-    }
-
-    return () => { engine.destroy() }
-  }, [canvas])
 
   // Input handling (keyboard, wheel, touch, paste, drag/drop)
   useEngineInput({
-    canvas,
+    canvas: engine.canvas,
     engineRef,
     fontSize$,
     nextParagraph: () => nextParagraph(engineRef.current ?? undefined),
@@ -361,7 +283,7 @@ export function App({ canvas }: AppProps) {
 }
 
 // Helper functions
-function applyEngineScope(engine: ReturnType<typeof createEngine>, opts: { snap?: boolean } = { snap: true }) {
+export function applyEngineScope(engine: Engine, opts: { snap?: boolean } = { snap: true }) {
   const counts = sentenceCounts$.value
   const paragraphIndex = currentPara$.value
   const view = viewMode$.value
