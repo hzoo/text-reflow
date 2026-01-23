@@ -4,7 +4,7 @@ import { ViewPicker } from './ViewPicker'
 import { Scrubber } from './Scrubber'
 import { Button } from './Button'
 import type { BeatId, FocusStyleId } from '../syntaxExploder/experiments'
-import { isMobile } from '../state/signals'
+import { isMobile, liteMode$, PREFS_KEY } from '../state/signals'
 
 interface HUDProps {
   // State
@@ -212,6 +212,23 @@ export function HUD({
             {inputOpen ? 'Esc' : 'I'}
           </kbd>
         </Button>
+        {isMobileView && (
+          <Button
+            class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto"
+            onClick={() => {
+              liteMode$.value = true
+              try {
+                const raw = localStorage.getItem(PREFS_KEY)
+                const obj = raw ? JSON.parse(raw) : {}
+                obj.liteMode = true
+                localStorage.setItem(PREFS_KEY, JSON.stringify(obj))
+              } catch {}
+              location.reload()
+            }}
+          >
+            Lite
+          </Button>
+        )}
         {!isMobileView && (
           <Button onClick={onExtraToggle} class="h-6 px-2 text-[10px] max-sm:min-h-11 max-sm:px-3 max-sm:text-xs ml-auto">
             ⋯

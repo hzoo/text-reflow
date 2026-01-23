@@ -23,12 +23,14 @@ type ReflowPrefs = {
   focusSpeed: number
   fontSize: number
   sentence: number
+  liteMode: boolean
+  liteVariant: 'scroll' | 'stories'
 }
 
 const DEFAULT_PREFS: ReflowPrefs = {
   beat: 'reader', focusStyle: 'gray', viewMode: 'full',
   fullPush: false, moveSpeed: 1, panSpeed: 1, focusSpeed: 1, fontSize: 18,
-  sentence: 0,
+  sentence: 0, liteMode: true, liteVariant: 'stories',
 }
 
 const BEATS: BeatId[] = ['reader', 'ladder']
@@ -50,6 +52,8 @@ function loadPrefs(): Partial<ReflowPrefs> {
     if (typeof obj.focusSpeed === 'number' && obj.focusSpeed > 0) out.focusSpeed = obj.focusSpeed
     if (typeof obj.fontSize === 'number' && obj.fontSize >= 8 && obj.fontSize <= 72) out.fontSize = obj.fontSize
     if (typeof obj.sentence === 'number' && obj.sentence >= 0 && Number.isInteger(obj.sentence)) out.sentence = obj.sentence
+    if (typeof obj.liteMode === 'boolean') out.liteMode = obj.liteMode
+    if (obj.liteVariant === 'scroll' || obj.liteVariant === 'stories') out.liteVariant = obj.liteVariant
     return out
   } catch { return {} }
 }
@@ -87,6 +91,8 @@ export const focusSpeed$ = signal(prefs.focusSpeed)
 export const fullPush$ = signal(prefs.fullPush)
 export const isAutoFont$ = signal(false)
 export const fontSize$ = signal(prefs.fontSize)
+export const liteMode$ = signal(prefs.liteMode)
+export const liteVariant$ = signal<'scroll' | 'stories'>(prefs.liteVariant)
 
 // Engine state signals (updated from engine callbacks)
 export const beat$ = signal<BeatId>(prefs.beat)
@@ -122,6 +128,8 @@ effect(() => {
     focusSpeed: focusSpeed$.value,
     fontSize: fontSize$.value,
     sentence: globalSentence$.value ?? 0,
+    liteMode: liteMode$.value,
+    liteVariant: liteVariant$.value,
   }
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {

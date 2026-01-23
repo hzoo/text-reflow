@@ -24,12 +24,15 @@ import {
   focusSpeed$,
   fullPush$,
   document$,
+  globalSentence$,
   sentenceCounts$,
   mapSentenceToParagraph,
   prefs,
   isMobile,
+  liteMode$,
   READER_FONT,
 } from './state/signals'
+import { LiteApp } from './lite/LiteApp'
 
 // URL param ingest: ?url= or ?text=
 const params = new URLSearchParams(location.search)
@@ -44,97 +47,118 @@ if (paramUrl) {
 }
 
 const root = document.querySelector<HTMLDivElement>('#app')!
+const isLite = isMobile() && liteMode$.value
 
-// Create canvas outside Preact tree to prevent unmounting
-const canvas = document.createElement('canvas')
-canvas.id = 'canv'
-root.appendChild(canvas)
-
-// --- Engine init (before Preact render) ---
-
-// Capture persisted values before engine init can overwrite signals
-const initBeat = beat$.value
-const initFocusStyle = focusStyle$.value
-const initFontSize = fontSize$.value
-
-const engine = createEngine({
-  canvas,
-  words: document$.value,
-  fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
-  maxContentWidth: maxWidth$.value,
-})
-
-engine.onLayout = () => {
-  layoutVersion$.value++
-}
-
-// Compute initial sentence from saved prefs
-const totalSentences = document$.value.sentenceCount
-let initSentence: number | undefined
-if (prefs.sentence > 0 && totalSentences > 0) {
-  const target = Math.min(prefs.sentence, totalSentences - 1)
-  if (isMobile() || viewMode$.value === 'paragraph') {
-    const counts = sentenceCounts$.value
-    const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
-    currentPara$.value = paragraphIndex
-    viewMode$.value = 'paragraph'
-    initSentence = localSentence
+if (isLite) {
+  // --- Lite mode: DOM-only, no canvas/engine ---
+  // Restore sentence position from prefs
+  const totalSentences = document$.value.sentenceCount
+  if (prefs.sentence > 0 && totalSentences > 0) {
+    globalSentence$.value = Math.min(prefs.sentence, totalSentences - 1)
   } else {
-    initSentence = target
+    globalSentence$.value = 0
   }
-}
 
-// Apply initial scope (after viewMode/para are set)
-if (isMobile()) {
-  viewMode$.value = 'paragraph'
-}
-applyEngineScope(engine)
+  const uiContainer = document.createElement('div')
+  uiContainer.id = 'ui'
+  root.appendChild(uiContainer)
 
-// Connect state change callback before start()
-engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
-  batch(() => {
-    beat$.value = b
-    focusStyle$.value = f
-    sentence$.value = s
-    sentenceCount$.value = total
-    sentenceOnlyMode$.value = sOnly
-  })
-}
-
-if (isMobile()) {
-  isAutoFont$.value = true
-  engine.setSentenceFollowMode('reveal')
-  engine.setBeat(initBeat)
-  engine.setFocusStyle(initFocusStyle)
-  engine.start(initSentence)
-  engine.autoFitFontSize()
-  fontSize$.value = engine.getFontSize()
+  render(
+    <>
+      <LiteApp />
+      {import.meta.env.DEV && <Agentation />}
+    </>,
+    uiContainer
+  )
 } else {
-  engine.setFontSize(initFontSize)
-  engine.setBeat(initBeat)
-  engine.setFocusStyle(initFocusStyle)
-  engine.setMoveSpeed(moveSpeed$.value)
-  engine.setPanSpeed(panSpeed$.value)
-  engine.setFocusSpeed(focusSpeed$.value)
-  engine.setFullFocusPush(fullPush$.value)
-  engine.start(initSentence)
-}
+  // --- Canvas mode ---
+  const canvas = document.createElement('canvas')
+  canvas.id = 'canv'
+  root.appendChild(canvas)
 
-// --- Preact render ---
+  // Capture persisted values before engine init can overwrite signals
+  const initBeat = beat$.value
+  const initFocusStyle = focusStyle$.value
+  const initFontSize = fontSize$.value
 
-const uiContainer = document.createElement('div')
-uiContainer.id = 'ui'
-root.appendChild(uiContainer)
+  const engine = createEngine({
+    canvas,
+    words: document$.value,
+    fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
+    maxContentWidth: maxWidth$.value,
+  })
 
-render(
-  <>
-    <App engine={engine} />
-    {import.meta.env.DEV && <Agentation />}
-  </>,
-  uiContainer
-)
+  engine.onLayout = () => {
+    layoutVersion$.value++
+  }
 
-// HMR cleanup
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => engine.destroy())
+  // Compute initial sentence from saved prefs
+  const totalSentences = document$.value.sentenceCount
+  let initSentence: number | undefined
+  if (prefs.sentence > 0 && totalSentences > 0) {
+    const target = Math.min(prefs.sentence, totalSentences - 1)
+    if (isMobile() || viewMode$.value === 'paragraph') {
+      const counts = sentenceCounts$.value
+      const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
+      currentPara$.value = paragraphIndex
+      viewMode$.value = 'paragraph'
+      initSentence = localSentence
+    } else {
+      initSentence = target
+    }
+  }
+
+  // Apply initial scope (after viewMode/para are set)
+  if (isMobile()) {
+    viewMode$.value = 'paragraph'
+  }
+  applyEngineScope(engine)
+
+  // Connect state change callback before start()
+  engine.onStateChange = (b: BeatId, f: FocusStyleId, s: number | null, total: number, sOnly: boolean) => {
+    batch(() => {
+      beat$.value = b
+      focusStyle$.value = f
+      sentence$.value = s
+      sentenceCount$.value = total
+      sentenceOnlyMode$.value = sOnly
+    })
+  }
+
+  if (isMobile()) {
+    isAutoFont$.value = true
+    engine.setSentenceFollowMode('reveal')
+    engine.setBeat(initBeat)
+    engine.setFocusStyle(initFocusStyle)
+    engine.start(initSentence)
+    engine.autoFitFontSize()
+    fontSize$.value = engine.getFontSize()
+  } else {
+    engine.setFontSize(initFontSize)
+    engine.setBeat(initBeat)
+    engine.setFocusStyle(initFocusStyle)
+    engine.setMoveSpeed(moveSpeed$.value)
+    engine.setPanSpeed(panSpeed$.value)
+    engine.setFocusSpeed(focusSpeed$.value)
+    engine.setFullFocusPush(fullPush$.value)
+    engine.start(initSentence)
+  }
+
+  // --- Preact render ---
+  const uiContainer = document.createElement('div')
+  uiContainer.id = 'ui'
+  root.appendChild(uiContainer)
+
+  render(
+    <>
+      <App engine={engine} />
+      {import.meta.env.DEV && <Agentation />}
+    </>,
+    uiContainer
+  )
+
+  // HMR cleanup
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => engine.destroy())
+  }
 }

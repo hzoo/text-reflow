@@ -1,0 +1,119 @@
+.lite-root {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  z-index: 1;
+}
+
+.lite-scroll {
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 40vh 24px 40vh;
+  font-family: "Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif;
+  font-size: 18px;
+  line-height: 1.7;
+  max-width: 640px;
+  margin: 0 auto;
+  contain: layout paint style;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lite-scroll p {
+  margin: 0 0 1.2em;
+}
+
+.lite-sentence {
+  opacity: 0.3;
+  transition: opacity 0.2s ease;
+}
+
+.lite-sentence.active {
+  opacity: 1;
+}
+
+.lite-stories {
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px 80px;
+  user-select: none;
+  -webkit-user-select: none;
+  contain: strict;
+  box-sizing: border-box;
+}
+
+.lite-stories-text {
+  font-family: "Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif;
+  font-size: 22px;
+  line-height: 1.6;
+  text-align: center;
+  max-width: 560px;
+}
+
+.lite-progress {
+  position: fixed;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  gap: 2px;
+  z-index: 10;
+}
+
+.lite-progress-segment {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-btn-bg);
+  transition: background 0.15s ease;
+}
+
+.lite-progress-segment.filled {
+  background: var(--color-accent);
+}
+
+.lite-hud {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--color-hud-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--color-hud-border);
+  z-index: 10;
+  transform: translateY(0);
+  transition: transform 0.2s ease;
+}
+
+.lite-hud.collapsed {
+  transform: translateY(100%);
+}
+
+.lite-hud-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-btn-bg);
+  color: var(--color-fg);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.lite-hud-btn:active {
+  background: var(--color-btn-active);
+}
+
+.lite-hud-btn.active {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
