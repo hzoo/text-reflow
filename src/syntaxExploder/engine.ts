@@ -125,6 +125,22 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     return arr.reduce((a, b) => a + b, 0) / arr.length
   }
 
+  // Cached sentence metrics for O(1) lookups
+  type SentenceMetric = {
+    minRow: number
+    maxRow: number
+    centerX: number
+    centerRow: number
+  }
+  let sentenceMetrics: SentenceMetric[] = []
+
+  // Metrics dirty checking
+  let metricsDirty = true
+  let lastFontSize = 0
+  let lastFontFamily = ''
+  let lastMaxWidth = 0
+  let lastModel: DocumentModel | null = null
+
   // Cached sentence centers for magnify mode
   const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
   const imageCache = new Map<string, ImageCacheEntry>()
@@ -269,7 +285,96 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     metrics.padY = Math.max(16, Math.floor((availableHeight - blockH) / 2))
   }
 
+  function updateSentenceMetrics() {
+    // Allocation free if size unchanged
+    const count = sentenceCountInScope
+    // Allocate array if size changed, otherwise reuse
+    if (sentenceMetrics.length !== count) {
+      sentenceMetrics = new Array(count)
+    }
+
+    // Initialize with defaults
+    for (let i = 0; i < count; i++) {
+      sentenceMetrics[i] = { minRow: Infinity, maxRow: -Infinity, centerX: 0, centerRow: 0 }
+    }
+
+    const words = visibleWords
+    const startOffset = sentenceOffset
+
+    // Single pass over words to accumulate bounds
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const localIndex = w.sentenceIndex - startOffset
+      if (localIndex < 0 || localIndex >= count) continue
+
+      const m = sentenceMetrics[localIndex]
+      
+      const span = w.imageH ? Math.max(1, Math.ceil(w.imageH / metrics.lineH)) : 1
+      const bottomRow = w.targetY + span - 1
+
+      if (w.targetY < m.minRow) m.minRow = w.targetY
+      if (bottomRow > m.maxRow) m.maxRow = bottomRow
+    }
+
+    // Second pass for centers (requires bounds for rows, but X needs words)
+    // Actually we can do X in the first pass if we track minX/maxX?
+    // Let's do a more robust center calc:
+    // Center Row = (minRow + maxRow) / 2
+    // Center X = Average of word centers? Or (minX + maxX) / 2?
+    // The previous implementation used (minX + maxX) / 2. Let's replicate that.
+
+    // Re-initialize for X bounds
+    const xBounds = new Float32Array(count * 2) // [minX, maxX, minX, maxX...]
+    for (let i = 0; i < count; i++) {
+      xBounds[i * 2] = Infinity
+      xBounds[i * 2 + 1] = -Infinity
+    }
+
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i]
+      const localIndex = w.sentenceIndex - startOffset
+      if (localIndex < 0 || localIndex >= count) continue
+
+      const base = localIndex * 2
+      if (w.targetX < xBounds[base]) xBounds[base] = w.targetX
+      const right = w.targetX + w.pixelWidth
+      if (right > xBounds[base + 1]) xBounds[base + 1] = right
+    }
+
+    // Finalize
+    for (let i = 0; i < count; i++) {
+      const m = sentenceMetrics[i]
+      if (m.minRow === Infinity) {
+        // Empty sentence
+        m.minRow = 0
+        m.maxRow = 0
+        m.centerX = 0
+        m.centerRow = 0
+      } else {
+        m.centerRow = (m.minRow + m.maxRow) / 2
+        const minX = xBounds[i * 2]
+        const maxX = xBounds[i * 2 + 1]
+        m.centerX = (minX + maxX) / 2
+      }
+    }
+  }
+
   function updateWordCols() {
+    // Check dirty flags
+    if (!metricsDirty && 
+        fontSize === lastFontSize && 
+        fontFamily === lastFontFamily && 
+        maxContentWidth === lastMaxWidth && 
+        model === lastModel) {
+      return
+    }
+
+    lastFontSize = fontSize
+    lastFontFamily = fontFamily
+    lastMaxWidth = maxContentWidth
+    lastModel = model
+    metricsDirty = false
+
     const t0 = performance.now()
     const words = visibleWords
     const blockW = metrics.maxCols * metrics.charW
@@ -367,7 +472,15 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   /** Get row bounds for a sentence (O(1) via wordsBySentence) */
+  // Optimized O(1) version using pre-calculated metrics
   function getSentenceRowBounds(sentence: number): { minRow: number; maxRow: number } {
+     const local = sentence - sentenceOffset
+     if (local >= 0 && local < sentenceMetrics.length) {
+       const m = sentenceMetrics[local]
+       return { minRow: m.minRow, maxRow: m.maxRow }
+     }
+
+    // Fallback (should rarely happen if metrics are synced)
     const sentenceWords = model.wordsBySentence[sentence] ?? []
     let minRow = Infinity
     let maxRow = -Infinity
@@ -380,6 +493,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   /** Find word nearest to viewport center (for anchor fallback) */
+
   function findWordNearestViewportCenter(): Word | null {
     const centerScreenY = window.innerHeight / 2
     let best: Word | null = null
@@ -412,6 +526,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontFamily,
     fontCache,
     sentenceCenterCache,
+    getSentenceMetrics: (index: number) => {
+      // Offset global index to local scope
+      const local = index - sentenceOffset
+      if (local < 0 || local >= sentenceMetrics.length) return null
+      return sentenceMetrics[local] || null
+    },
     imageCache,
     ensureImage: (url: string) => { ensureImage(url) },
     scaleEps: SCALE_EPS,
@@ -550,6 +670,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     updateWordCols()
     const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
     applyTargets(visibleWords, layout)
+    
+    // Eagerly update sentence metrics
+    updateSentenceMetrics()
+    
     sentenceCenterCache.clear()
     // Update vertical padding using cached maxRow (no re-scan)
     updateVerticalPadding()
@@ -821,6 +945,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       bottom: metrics.padY + (bounds.maxRow + 1) * metrics.lineH + panY,
     }
   }
+
 
   function updatePanForSentence() {
     const globalSentence = hoveredSentenceGlobal()

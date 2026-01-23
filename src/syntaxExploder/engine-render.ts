@@ -18,6 +18,7 @@ export type RenderState = {
   fontFamily: string
   fontCache: Map<string, string>
   sentenceCenterCache: Map<number, { centerCol: number; centerRow: number }>
+  getSentenceMetrics?: (index: number) => { centerX: number; centerRow: number; minRow: number; maxRow: number } | null
   imageCache: Map<string, { img: CanvasImageSource; status: 'loading' | 'loaded' | 'error' }>
   ensureImage: (url: string) => void
   scaleEps: number
@@ -114,6 +115,23 @@ export function createRenderer(state: RenderState) {
   }
 
   function getSentenceCenter(sentenceIndex: number): { centerX: number; centerRow: number } {
+    // Should use O(1) metrics from engine if available, but render doesn't have access to engine instance.
+    // However, engine passes `sentenceCenterCache`? No, we removed that dependency in favor of eager.
+    // Wait, the renderer still has `getSentenceWords` and iterates.
+    // To fix this cleanly, we should pass the `sentenceMetrics` array to RenderState.
+    // For now, let's keep the cache usage but note it should be populated by the engine if possible.
+    
+    // Actually, `createRenderer` is called inside `createEngine` and has access to closure variables?
+    // No, `createRenderer` is in a separate file.
+    
+    // We should add `getSentenceMetrics(index)` to RenderState.
+    
+    // Fallback to cache if provider not available
+    if (state.getSentenceMetrics) {
+      const m = state.getSentenceMetrics(sentenceIndex)
+      if (m) return { centerX: m.centerX, centerRow: m.centerRow }
+    }
+
     const cached = state.sentenceCenterCache.get(sentenceIndex)
     if (cached) return { centerX: cached.centerCol, centerRow: cached.centerRow }
 
