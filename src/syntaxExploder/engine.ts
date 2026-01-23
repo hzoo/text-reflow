@@ -427,7 +427,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     get debug() { return debug },
     theme,
   }
-  const { drawWord, drawWordPlain, drawWordRedactRect, wordUnder } = createRenderer(renderState)
+  const { drawWord, drawWordPlain, drawWordRedactRect, wordUnder, beginFrame } = createRenderer(renderState)
 
   /** Calculate content bounds for given words */
   function getContentBounds(words: Word[]): { maxRow: number; maxX: number } {
@@ -761,6 +761,18 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Animate words in hot range
     for (let i = start; i < end; i++) {
       const w = words[i]
+
+      // Jump Recovery: If word is vastly off-screen (stale animY), snap it immediately
+      // This happens on fast scroll or "jump to bottom"
+      const distY = Math.abs(w.targetY - w.animY)
+      if (distY > 50) { // threshold: 50 lines
+         w.animY = w.targetY
+         w.animX = w.targetX
+         w.animScale = w.targetScale
+         active = true
+         continue
+      }
+
       const dCol = w.targetX - w.animX
       const dRow = w.targetY - w.animY
       const dScale = w.targetScale - w.animScale
@@ -933,7 +945,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     needsRedraw = false
 
     clear()
-    ctx.font = fontString
+    beginFrame()
     ctx.fillStyle = theme.text
     ctx.globalAlpha = 1
 

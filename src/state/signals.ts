@@ -1,5 +1,5 @@
 import { signal, computed, effect } from '@preact/signals'
-import { parseDocument, parseText, parseMarkdownText, splitParagraphs, DEFAULT_TEXT, detectBibleVerses, markdownToParagraphs, markdownToReadingText, extractMetadata, type DocumentModel } from '../syntaxExploder/document'
+import { parseDocument, splitParagraphs, DEFAULT_TEXT, markdownToParagraphs, extractMetadata } from '../syntaxExploder/document'
 import { type BeatId, type FocusStyleId } from '../syntaxExploder/experiments'
 import { migrateOldStorage, activeEntry$, library$, addEntry } from './library'
 
@@ -173,12 +173,6 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 })
 
 // Derived signals
-export const fullText$ = computed(() =>
-  markdownMode$.value
-    ? markdownToReadingText(text$.value)
-    : text$.value
-)
-
 export const baseParagraphs$ = computed(() =>
   markdownMode$.value
     ? markdownToParagraphs(text$.value)
@@ -187,32 +181,19 @@ export const baseParagraphs$ = computed(() =>
 
 export const paragraphs$ = computed(() => {
   if (viewMode$.value === 'full') {
-    const full = fullText$.value.trim()
+    const full = document$.value.paragraphs.join('\n\n').trim()
     return full ? [full] : []
   }
-  const rawParas = baseParagraphs$.value
-  return rawParas.map(p => p.trim()).filter(Boolean)
+  return document$.value.paragraphs
 })
 
 export const document$ = computed(() =>
   parseDocument(baseParagraphs$.value, markdownMode$.value)
 )
 
-export const sentenceCounts$ = computed(() =>
-  getSentenceCounts(baseParagraphs$.value, markdownMode$.value, document$.value)
-)
+export const sentenceCounts$ = computed(() => document$.value.sentenceCounts)
 
 // Helper functions
-function getSentenceCounts(paragraphs: string[], useMarkdown: boolean, doc: DocumentModel): number[] {
-  const fullText = paragraphs.join('\n\n')
-  const { isBible } = detectBibleVerses(fullText)
-  if (isBible) {
-    return [doc.sentenceCount]
-  }
-  const create = useMarkdown ? parseMarkdownText : parseText
-  return paragraphs.map((paragraph) => create(paragraph).sentenceCount)
-}
-
 export function getSentenceOffset(counts: number[], paragraphIndex: number): number {
   let offset = 0
   for (let i = 0; i < paragraphIndex; i++) offset += counts[i] || 0

@@ -51,14 +51,14 @@ export function findVisibleRange(
 
   if (words.length === 0) return { start: 0, end: 0 }
 
-  // Compute approximate Y for binary search (animY * lineH + padding)
+  // Compute approximate Y for binary search using TARGET positions (robust against animation lag)
   const getWordTop = (w: Word) => {
-    return state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
+    return state.animPadY + state.animPanY + w.targetY * metrics.lineH + w.focusDy
   }
 
   const getWordBottom = (w: Word) => {
     const height = w.imageH || metrics.lineH
-    return getWordTop(w) + height * w.animScale * w.baseScale
+    return getWordTop(w) + height * w.targetScale * w.baseScale
   }
 
   // Binary search for first visible word (bottom >= viewportTop)
@@ -92,6 +92,14 @@ export function findVisibleRange(
 
 export function createRenderer(state: RenderState) {
   const { ctx, metrics } = state
+  let lastFont = ''
+
+  function setFont(font: string) {
+    if (lastFont !== font) {
+      ctx.font = font
+      lastFont = font
+    }
+  }
 
   function fontForScale(scale: number, fontStyle: 'normal' | 'italic', fontWeight: 'normal' | 'bold'): string {
     const px = Math.max(1, Math.round(state.fontSize * scale))
@@ -184,18 +192,21 @@ export function createRenderer(state: RenderState) {
 
   function drawWordText(w: Word, pos: WordPos) {
     if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
-      ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
+      setFont(fontForScale(pos.s, w.fontStyle, w.fontWeight))
+    } else {
+      setFont(state.fontString)
     }
+
     const prevFill = ctx.fillStyle
     if (w.linkUrl) ctx.fillStyle = state.theme.link
     ctx.fillText(w.displayText, pos.x, pos.y)
+    
+    // Link underline: Simplified to just 1px line, already optimal.
+    // User mentioned removing it if perf issue, but 1px rect is fast.
     if (w.linkUrl) {
       const width = ctx.measureText(w.displayText).width
       ctx.fillRect(pos.x, pos.y + metrics.lineH * pos.s - 2, width, 1)
       ctx.fillStyle = prevFill
-    }
-    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
-      ctx.font = state.fontString
     }
   }
 
@@ -327,9 +338,11 @@ export function createRenderer(state: RenderState) {
       return
     }
 
-    // Set font only if scaled (otherwise use pre-set font from frame)
+    // Set font based on scale/style
     if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
-      ctx.font = fontForScale(pos.s, w.fontStyle, w.fontWeight)
+      setFont(fontForScale(pos.s, w.fontStyle, w.fontWeight))
+    } else {
+      setFont(state.fontString)
     }
 
     // Set alpha based on focus style
@@ -345,11 +358,8 @@ export function createRenderer(state: RenderState) {
     if (isDimmed && state.focusStyle !== 'none') {
       ctx.globalAlpha = 1
     }
-    // Reset font if scaled
-    if (pos.s > state.scaleEps || w.fontStyle !== 'normal' || w.fontWeight !== 'normal') {
-      ctx.font = state.fontString
-    }
-
+    // Font reset handled by setFont logic in next iteration
+    
     if (state.debug) drawDebug(w, pos)
   }
 
@@ -363,7 +373,7 @@ export function createRenderer(state: RenderState) {
 
       // Base position (unscaled)
       const baseX = state.animPadX + w.animX
-      const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy
+      const baseY = state.animPadY + state.animPanY + w.targetY * metrics.lineH + w.focusDy
 
       let x = baseX
       let y = baseY
@@ -391,5 +401,9 @@ export function createRenderer(state: RenderState) {
     drawWordPlain,
     drawWordRedactRect,
     wordUnder,
+    beginFrame: () => {
+      lastFont = '' // Force update
+      setFont(state.fontString)
+    }
   }
 }

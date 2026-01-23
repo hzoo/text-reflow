@@ -71,43 +71,25 @@ export function App({ engine }: AppProps) {
     },
   })
 
-  // Sync fullPush with engine
-  useSignalEffect(() => {
-    engineRef.current?.setFullFocusPush(fullPush$.value)
-  })
-
-  // Sync debug with engine
-  useSignalEffect(() => {
-    engineRef.current?.commit({ debug: debug$.value })
-  })
-
-  // Sync motion speeds with engine
+  // Sync engine settings
   useSignalEffect(() => {
     const engine = engineRef.current
     if (!engine) return
+
+    // Commit layout properties
+    engine.commit({
+      debug: debug$.value,
+      beat: beat$.value,
+      fontSize: fontSize$.value,
+      maxContentWidth: maxWidth$.value,
+    })
+
+    // Set runtime properties
+    engine.setFocusStyle(focusStyle$.value)
+    engine.setFullFocusPush(fullPush$.value)
     engine.setMoveSpeed(moveSpeed$.value)
     engine.setPanSpeed(panSpeed$.value)
     engine.setFocusSpeed(focusSpeed$.value)
-  })
-
-  // Sync beat with engine
-  useSignalEffect(() => {
-    engineRef.current?.setBeat(beat$.value)
-  })
-
-  // Sync focus style with engine
-  useSignalEffect(() => {
-    engineRef.current?.setFocusStyle(focusStyle$.value)
-  })
-
-  // Sync font size with engine
-  useSignalEffect(() => {
-    engineRef.current?.setFontSize(fontSize$.value)
-  })
-
-  // Sync max width with engine
-  useSignalEffect(() => {
-    engineRef.current?.setMaxWidth(maxWidth$.value)
   })
 
   // Sync scope with engine

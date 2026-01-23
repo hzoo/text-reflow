@@ -44,4 +44,7 @@ export type DocumentModel = {
   sentenceCount: number
   wordsBySentence: Word[][]
   wordsByParagraph: Word[][]
+  // Pre-computed structural data
+  paragraphs: string[]
+  sentenceCounts: number[]
 }

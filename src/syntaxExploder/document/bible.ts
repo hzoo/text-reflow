@@ -194,5 +194,13 @@ export function parseBibleText(text: string): DocumentModel {
   // Single paragraph → all words in paragraph 0
   const wordsByParagraph: Word[][] = [words]
 
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
+  return { 
+    words, 
+    metaById, 
+    sentenceCount: finalSentenceCount, 
+    wordsBySentence, 
+    wordsByParagraph,
+    paragraphs: [cleaned],
+    sentenceCounts: [finalSentenceCount]
+  }
 }

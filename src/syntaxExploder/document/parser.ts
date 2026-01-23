@@ -286,7 +286,15 @@ export function parseText(text: string): DocumentModel {
   // Single paragraph → all words in paragraph 0
   const wordsByParagraph: Word[][] = [words]
 
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
+  return { 
+    words, 
+    metaById, 
+    sentenceCount: finalSentenceCount, 
+    wordsBySentence, 
+    wordsByParagraph,
+    paragraphs: [text],
+    sentenceCounts: [finalSentenceCount]
+  }
 }
 
 // ─── Public: Markdown Text Parsing ─────────────────────────────────────────
@@ -508,7 +516,90 @@ export function parseMarkdownText(text: string): DocumentModel {
     wordsByParagraph[word.paragraphIndex].push(word)
   }
 
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
+  // Markdown parser handles multiple lines but currently treats them as one "block" passed to it
+  // unless splitParagraphs was called before.
+  // However, parseMarkdownText's signature is `(text: string) => DocumentModel`.
+  // The structure suggests it *could* produce multiple paragraphs if lines are separated?
+  // Looking at the loop `for (const line of lines)`, it increments `paragraphIndex` (line 434).
+  
+  // Wait, let's check how paragraphIndex is handled in parseMarkdownText loop.
+  // line 425: let paragraphIndex = 0
+  // line 434: paragraphIndex++ (on empty line)
+  // line 498: words[i].paragraphIndex = paragraphIndex
+  
+  // So parseMarkdownText DOES produce multiple paragraphs internally if the input text has gaps!
+  
+  // We need to reconstruct the `paragraphs` string array and `sentenceCounts` array from the parsed words.
+  
+  const paragraphs: string[] = []
+  const sentenceCounts: number[] = []
+  
+  // Initialize arrays
+  const maxPara = words.length > 0 ? words[words.length - 1].paragraphIndex : 0
+  for (let i = 0; i <= maxPara; i++) {
+    paragraphs[i] = ''
+    sentenceCounts[i] = 0
+  }
+  
+  // Reconstruct paragraph text (approximate) and count sentences
+  // Actually, since this function is usually called with a single paragraph string from parseDocument,
+  // we might be over-engineering. But parseDocument calls it with `paragraph`.
+  
+  // However, `parseMarkdownText` logic definitely supports internal paragraph breaks.
+  // Let's rely on `wordsByParagraph` to count sentences per paragraph.
+  
+  // Count sentences per paragraph
+  for (let i = 0; i < wordsByParagraph.length; i++) {
+    const paraWords = wordsByParagraph[i] || []
+    if (paraWords.length === 0) {
+      sentenceCounts[i] = 0
+      continue
+    }
+    const firstSent = paraWords[0].sentenceIndex
+    const lastSent = paraWords[paraWords.length - 1].sentenceIndex
+    sentenceCounts[i] = lastSent - firstSent + 1
+    
+    // For text reconstruction, we can just use the input text if it's one paragraph,
+    // but if it split, we should probably return the splits.
+    // BUT `parseDocument` passes one paragraph at a time.
+    // If `parseMarkdownText` splits it further, `parseDocument`'s assumption might be slightly off
+    // or it just aggregates them.
+    
+    // For now, let's assume the input `text` corresponds to these paragraphs.
+    // If it split internally, we can't easily reconstruction the original split strings without tracking offsets.
+    // Simpler approach: 
+    // If wordsByParagraph has length 1, use [text].
+    // If > 1, we might need to split the input text by the empty lines that caused the split?
+    // The loop split by `\n` and handled empty lines.
+  }
+
+  // Actually, simpler:
+  // parseDocument splits by `splitParagraphs` (double newline) BEFORE calling this.
+  // So `text` passed here is likely a single "paragraph" block.
+  // The internal `paragraphIndex` logic in `parseMarkdownText` handles single newlines as breaks?
+  // No, line 434: `if (!trimmed) { ... paragraphIndex++ ... }`
+  // So if there are empty lines within the block, it creates new paragraphs.
+  
+  // Let's just return [text] and [finalSentenceCount] if it's treated as one block,
+  // or try to match the internal structure.
+  
+  // Given `parseDocument` iterates `paragraphs` and calls this, 
+  // usually `text` here is ONE paragraph.
+  // But if it does produce multiple, `parseDocument` aggregation logic (lines 532+) 
+  // uses `doc.words` but ignores `doc.paragraphs`/`doc.sentenceCounts`.
+  // Wait, I need to update `parseDocument` to use them or compute them.
+  
+  // Let's keep it simple and consistent with `parseText`.
+  
+  return { 
+    words, 
+    metaById, 
+    sentenceCount: finalSentenceCount, 
+    wordsBySentence, 
+    wordsByParagraph,
+    paragraphs: [text], // Treat the input as the source "paragraph" text
+    sentenceCounts: [finalSentenceCount] // Treat all sentences as belonging to this block
+  }
 }
 
 // ─── Public: Document Creation ─────────────────────────────────────────────
@@ -567,5 +658,26 @@ export function parseDocument(paragraphs: string[], useMarkdown: boolean): Docum
     wordsByParagraph[word.paragraphIndex].push(word)
   }
 
-  return { words, metaById, sentenceCount: finalSentenceCount, wordsBySentence, wordsByParagraph }
+  // Calculate sentence counts per paragraph
+  const finalSentenceCounts = new Array(paragraphs.length).fill(0)
+  for (let i = 0; i < paragraphs.length; i++) {
+    const paraWords = wordsByParagraph[i]
+    if (!paraWords || paraWords.length === 0) {
+      finalSentenceCounts[i] = 0
+    } else {
+      const first = paraWords[0].sentenceIndex
+      const last = paraWords[paraWords.length - 1].sentenceIndex
+      finalSentenceCounts[i] = last - first + 1
+    }
+  }
+
+  return { 
+    words, 
+    metaById, 
+    sentenceCount: finalSentenceCount, 
+    wordsBySentence, 
+    wordsByParagraph,
+    paragraphs,
+    sentenceCounts: finalSentenceCounts
+  }
 }
