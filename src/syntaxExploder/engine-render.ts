@@ -17,7 +17,6 @@ export type RenderState = {
   metrics: Metrics
   fontFamily: string
   fontCache: Map<string, string>
-  sentenceCenterCache: Map<number, { centerCol: number; centerRow: number }>
   getSentenceMetrics?: (index: number) => { centerX: number; centerRow: number; minRow: number; maxRow: number } | null
   imageCache: Map<string, { img: CanvasImageSource; status: 'loading' | 'loaded' | 'error' }>
   ensureImage: (url: string) => void
@@ -132,27 +131,8 @@ export function createRenderer(state: RenderState) {
       if (m) return { centerX: m.centerX, centerRow: m.centerRow }
     }
 
-    const cached = state.sentenceCenterCache.get(sentenceIndex)
-    if (cached) return { centerX: cached.centerCol, centerRow: cached.centerRow }
-
-    let minX = Infinity, maxX = -Infinity, minRow = Infinity, maxRow = -Infinity
-    const words = state.getSentenceWords(sentenceIndex)
-    for (let i = 0; i < words.length; i++) {
-      const other = words[i]
-      minX = Math.min(minX, other.targetX)
-      maxX = Math.max(maxX, other.targetX + other.pixelWidth)
-      minRow = Math.min(minRow, other.targetY)
-      maxRow = Math.max(maxRow, other.targetY + 1)
-    }
-    if (words.length === 0) {
-      return { centerX: 0, centerRow: 0 }
-    }
-    const result = {
-      centerX: (minX + maxX) / 2,
-      centerRow: (minRow + maxRow) / 2,
-    }
-    state.sentenceCenterCache.set(sentenceIndex, { centerCol: result.centerX, centerRow: result.centerRow })
-    return result
+    // Eager metrics should always be available. Fallback to 0 if not found (shouldn't happen)
+    return { centerX: 0, centerRow: 0 }
   }
 
   const tmpPos: WordPos = { x: 0, y: 0, s: 1 }

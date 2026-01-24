@@ -12,9 +12,6 @@ export type Metrics = {
   spaceW: number
 }
 
-export type LayoutTarget = { col: number; row: number }
-export type LayoutMap = Map<string, LayoutTarget>
-
 export type LayoutContext = {
   model: DocumentModel
   metrics: Metrics
@@ -22,10 +19,14 @@ export type LayoutContext = {
   paragraphBreakRows?: number
 }
 
+// Layout now mutates Word.targetX/Y directly and returns bounds
+export type LayoutResult = { maxRow: number }
+export type LayoutFn = (ctx: LayoutContext) => LayoutResult
+
 export type Beat = {
   id: BeatId
   name: string
-  layout: (ctx: LayoutContext) => LayoutMap
+  layout: LayoutFn
 }
 
 export type FocusStyleId = 'highlight' | 'gray' | 'redact' | 'none'

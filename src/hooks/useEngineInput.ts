@@ -44,15 +44,22 @@ export function useEngineInput(deps: UseEngineInputDeps) {
     }
 
     const stepByDelta = (deltaY: number, acc: { value: number }, threshold: number) => {
+      const engine = engineRef.current
+      if (!engine) return
+
       acc.value += deltaY
-      while (acc.value >= threshold) {
-        stepNextSentence()
-        acc.value -= threshold
-      }
-      while (acc.value <= -threshold) {
-        stepPrevSentence()
-        acc.value += threshold
-      }
+      engine.batch(() => {
+        while (acc.value >= threshold) {
+          if (engine.nextSentence() === 'wrap') deps.nextParagraph()
+          acc.value -= threshold
+        }
+        while (acc.value <= -threshold) {
+          if (engine.prevSentence() === 'wrap') {
+            if (deps.prevParagraph()) engine.goToLastSentence()
+          }
+          acc.value += threshold
+        }
+      })
     }
 
     // --- Keyboard ---
@@ -66,35 +73,37 @@ export function useEngineInput(deps: UseEngineInputDeps) {
       const engine = engineRef.current
       if (!engine) return
 
-      const key = e.key.toLowerCase()
-      if (key === '1') engine.setBeat('reader')
-      else if (key === '2') engine.setBeat('ladder')
-      else if (e.key === 'ArrowDown' || key === 'j') stepNextSentence()
-      else if (e.key === 'ArrowUp' || key === 'k') stepPrevSentence()
-      else if (e.key === 'ArrowRight' || key === 'l') stepNextSentence()
-      else if (e.key === 'ArrowLeft' || key === 'h') stepPrevSentence()
-      else if (key === 'f') engine.cycleFocusStyle()
-      else if (key === 'v') deps.toggleViewMode()
-      else if (key === 'r') {
-        deps.goToParagraph(0)
-        if (viewMode$.value === 'full') engine.setSentence(0)
-      }
-      else if (key === 'e') engine.goToLastSentence()
-      else if (key === 'i' || key === 'm' || key === '?') { e.preventDefault(); deps.openInput() }
-      else if (key === '=' || key === '+') {
-        isAutoFont$.value = false
-        const next = Math.min(128, fontSize$.value + 2)
-        fontSize$.value = next
-        engine.setFontSize(next)
-      }
-      else if (key === '-') {
-        isAutoFont$.value = false
-        const next = Math.max(10, fontSize$.value - 2)
-        fontSize$.value = next
-        engine.setFontSize(next)
-      }
-      else if (key === '?') controlsOpen$.value = !controlsOpen$.value
-      else if (e.key === 'Escape') { if (controlsOpen$.value) controlsOpen$.value = false }
+      engine.batch(() => {
+        const key = e.key.toLowerCase()
+        if (key === '1') engine.setBeat('reader')
+        else if (key === '2') engine.setBeat('ladder')
+        else if (e.key === 'ArrowDown' || key === 'j') stepNextSentence()
+        else if (e.key === 'ArrowUp' || key === 'k') stepPrevSentence()
+        else if (e.key === 'ArrowRight' || key === 'l') stepNextSentence()
+        else if (e.key === 'ArrowLeft' || key === 'h') stepPrevSentence()
+        else if (key === 'f') engine.cycleFocusStyle()
+        else if (key === 'v') deps.toggleViewMode()
+        else if (key === 'r') {
+          deps.goToParagraph(0)
+          if (viewMode$.value === 'full') engine.setSentence(0)
+        }
+        else if (key === 'e') engine.goToLastSentence()
+        else if (key === 'i' || key === 'm' || key === '?') { e.preventDefault(); deps.openInput() }
+        else if (key === '=' || key === '+') {
+          isAutoFont$.value = false
+          const next = Math.min(128, fontSize$.value + 2)
+          fontSize$.value = next
+          engine.setFontSize(next)
+        }
+        else if (key === '-') {
+          isAutoFont$.value = false
+          const next = Math.max(10, fontSize$.value - 2)
+          fontSize$.value = next
+          engine.setFontSize(next)
+        }
+        else if (key === '?') controlsOpen$.value = !controlsOpen$.value
+        else if (e.key === 'Escape') { if (controlsOpen$.value) controlsOpen$.value = false }
+      })
     }
 
     // --- Wheel ---

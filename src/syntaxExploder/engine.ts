@@ -1,4 +1,4 @@
-import { BEATS, type BeatId, type FocusStyleId, type LayoutMap, type Metrics } from './experiments'
+import { BEATS, type BeatId, type FocusStyleId, type Metrics } from './experiments'
 import { createRenderer, findVisibleRange, type CanvasTheme } from './engine-render'
 import type { DocumentModel, Word } from './document'
 import { computeNextIndex, computePrevIndex, computeLastIndex, clampIndex } from './engine-sentences'
@@ -103,7 +103,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   const fontCache = new Map<string, string>()
 
   // Word width cache: keyed by `fontKey|displayText` (LRU-capped)
-  const WORD_WIDTH_CACHE_MAX = 10000
+  const WORD_WIDTH_CACHE_MAX = 25000
   const wordWidthCache = new Map<string, number>()
 
   // Performance timing metrics (exposed for HUD)
@@ -142,15 +142,37 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let lastModel: DocumentModel | null = null
 
   // Cached sentence centers for magnify mode
-  const sentenceCenterCache = new Map<number, { centerCol: number; centerRow: number }>()
   const imageCache = new Map<string, ImageCacheEntry>()
   let imageRelayoutPending = false
 
   let needsRedraw = true
   let rafId = 0
+  let batchDepth = 0
+  let stateDirty = false
+  
+  // Background warming state
+  let backgroundTaskVersion = 0
+  let backgroundWarmTimer: ReturnType<typeof setTimeout> | null = null
 
   function notifyStateChange() {
+    if (batchDepth > 0) {
+      stateDirty = true
+      return
+    }
     onStateChange?.(beat, focusStyle, hoveredSentence, sentenceCountInScope, sentenceOnlyMode)
+    stateDirty = false
+  }
+
+  function batch(fn: () => void) {
+    batchDepth++
+    try {
+      fn()
+    } finally {
+      batchDepth--
+      if (batchDepth === 0 && stateDirty) {
+        notifyStateChange()
+      }
+    }
   }
 
   function requestFrame() {
@@ -274,6 +296,129 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     updateVerticalPadding()
   }
 
+  function preWarmWidthCache(startSent: number, endSent: number) {
+    if (!metricsDirty && wordWidthCache.size > 0) return
+
+    const t0 = performance.now()
+    ctx.font = fontString
+    const words = model.words
+    const seen = new Set<string>()
+    
+    // Convert sentence range to word range
+    // O(1) if using wordsBySentence, or just iterate words if safer
+    // Let's iterate all words and filter by sentence index to be robust
+    // Actually, we can use the first word of startSent and last of endSent
+    
+    let startIndex = 0
+    let endIndex = words.length
+    
+    if (model.wordsBySentence[startSent] && model.wordsBySentence[startSent].length > 0) {
+      startIndex = model.wordsBySentence[startSent][0].tokenIndex
+    }
+    if (model.wordsBySentence[endSent] && model.wordsBySentence[endSent].length > 0) {
+      const s = model.wordsBySentence[endSent]
+      endIndex = s[s.length - 1].tokenIndex + 1
+    }
+    
+    // Clamp
+    startIndex = Math.max(0, startIndex)
+    endIndex = Math.min(words.length, endIndex)
+
+    for (let i = startIndex; i < endIndex; i++) {
+      const w = words[i]
+      if (w.imageUrl) continue
+      
+      const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
+      const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+      const cacheKey = `${fontKey}|${w.displayText}`
+      
+      if (wordWidthCache.has(cacheKey)) continue
+      if (seen.has(cacheKey)) continue
+      seen.add(cacheKey)
+
+      // Measure
+      let font = fontCache.get(fontKey)
+      if (!font) {
+        const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
+        const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
+        font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
+        fontCache.set(fontKey, font)
+      }
+      ctx.font = font
+      const fullWidth = ctx.measureText(w.displayText).width
+      
+      let pixelWidth = fullWidth
+      if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
+        const textWidth = ctx.measureText(w.displayText.trimEnd()).width
+        pixelWidth = textWidth + metrics.spaceW
+      }
+      
+      wordWidthCache.set(cacheKey, pixelWidth)
+      
+      // Safety cap: 5ms for synchronous "Hot Zone" warming
+      if (performance.now() - t0 > 5) break 
+    }
+    ctx.font = fontString
+  }
+
+  function scheduleBackgroundWarming(currentVersion: number, nextStartWordIndex: number) {
+    if (backgroundWarmTimer) clearTimeout(backgroundWarmTimer)
+    
+    backgroundWarmTimer = setTimeout(() => {
+      if (destroyed || currentVersion !== backgroundTaskVersion) return
+      
+      const t0 = performance.now()
+      ctx.font = fontString
+      const words = model.words
+      let i = nextStartWordIndex
+      let count = 0
+      
+      // Process chunk with strict limits: max 5ms OR max 100 words
+      while (i < words.length && count < 100 && performance.now() - t0 < 5) {
+        const w = words[i]
+        i++
+        count++
+        if (w.imageUrl) continue
+        
+        const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
+        const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+        const cacheKey = `${fontKey}|${w.displayText}`
+        
+        if (wordWidthCache.has(cacheKey)) continue
+
+        let font = fontCache.get(fontKey)
+        if (!font) {
+          const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
+          const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
+          font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
+          fontCache.set(fontKey, font)
+        }
+        ctx.font = font
+        const fullWidth = ctx.measureText(w.displayText).width
+        
+        let pixelWidth = fullWidth
+        if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
+          const textWidth = ctx.measureText(w.displayText.trimEnd()).width
+          pixelWidth = textWidth + metrics.spaceW
+        }
+        
+        wordWidthCache.set(cacheKey, pixelWidth)
+      }
+      
+      // Schedule next chunk if not done
+      if (i < words.length) {
+        scheduleBackgroundWarming(currentVersion, i)
+      } else {
+        backgroundWarmTimer = null
+        // Option A: Trigger one-time anchored layout to lock in widths
+        // Only if we haven't been destroyed/superseded
+        if (!destroyed && currentVersion === backgroundTaskVersion) {
+           layoutCurrentBeat(true, true)
+        }
+      }
+    }, 16) // Yield to main thread
+  }
+
   /** Update vertical padding using cached lastLayoutMaxRow */
   function updateVerticalPadding() {
     if (sentenceFollowMode === 'reveal') {
@@ -380,60 +525,162 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const blockW = metrics.maxCols * metrics.charW
     const fallbackW = Math.max(1, Math.min(blockW, 360))
     const fallbackH = Math.max(metrics.lineH, Math.round(fallbackW * 0.6))
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i]
-      if (w.imageUrl) {
-        const entry = imageCache.get(w.imageUrl)
-        let drawW = fallbackW
-        let drawH = fallbackH
-        if (entry && entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
-          const scale = Math.min(1, blockW / entry.naturalWidth)
-          drawW = Math.round(entry.naturalWidth * scale)
-          drawH = Math.round(entry.naturalHeight * scale)
+    // Determine hot zone for updateWordCols
+    let hotStart = 0
+    let hotEnd = words.length
+    
+    // In full mode, only strict-measure the hot zone + buffer
+    // In paragraph mode, measure everything (it's small)
+    if (scope.mode === 'full') {
+      const center = hoveredSentenceGlobal() ?? 0
+      // Buffer: 50 sentences above/below (covers fast scroll)
+      hotStart = 0 // Start from top for accurate line breaking? 
+      // Actually, if we approximate the top, the row indices shift.
+      // But our anchor logic (updatePanForSentence) should handle row shifts?
+      // Yes, if we anchor to "Sentence 50", it stays on screen even if it moves from Row 500 to Row 505.
+      // So we CAN approximate above.
+      
+      // Let's use a wide buffer: ±100 sentences
+      hotStart = Math.max(0, center - 100)
+      hotEnd = Math.min(sentenceCountInScope, center + 100)
+      
+      // Convert to word indices
+      let hotWordStart = 0
+      let hotWordEnd = words.length
+      
+      if (model.wordsBySentence[hotStart] && model.wordsBySentence[hotStart].length > 0) {
+        hotWordStart = model.wordsBySentence[hotStart][0].tokenIndex
+      }
+      if (model.wordsBySentence[hotEnd] && model.wordsBySentence[hotEnd].length > 0) {
+        const s = model.wordsBySentence[hotEnd]
+        hotWordEnd = s[s.length - 1].tokenIndex + 1
+      }
+      
+      // Clamp
+      hotWordStart = Math.max(0, hotWordStart)
+      hotWordEnd = Math.min(words.length, hotWordEnd)
+      
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i]
+        if (w.imageUrl) {
+          const entry = imageCache.get(w.imageUrl)
+          let drawW = fallbackW
+          let drawH = fallbackH
+          if (entry && entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
+            const scale = Math.min(1, blockW / entry.naturalWidth)
+            drawW = Math.round(entry.naturalWidth * scale)
+            drawH = Math.round(entry.naturalHeight * scale)
+          }
+          w.imageW = drawW
+          w.imageH = drawH
+          w.pixelWidth = Math.max(1, drawW)
+          w.breakAfter = true
+          w.breakAfterRows = Math.max(1, Math.ceil(drawH / metrics.lineH))
+          continue
         }
-        w.imageW = drawW
-        w.imageH = drawH
-        w.pixelWidth = Math.max(1, drawW)
-        w.breakAfter = true
-        w.breakAfterRows = Math.max(1, Math.ceil(drawH / metrics.lineH))
-        continue
-      }
-      const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
-      const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+        
+        // If outside hot zone, approximate immediately (skip cache lookup/string creation)
+        if (i < hotWordStart || i >= hotWordEnd) {
+           // Approximation: Avg char width * length
+           // We use metrics.charW (measured from 'a-z')
+           const estimated = w.displayText.length * metrics.charW
+           w.pixelWidth = estimated
+           continue
+        }
 
-      // Check word width cache first
-      const cacheKey = `${fontKey}|${w.displayText}`
-      const cached = wordWidthCache.get(cacheKey)
-      if (cached !== undefined) {
-        w.pixelWidth = cached
-        continue
-      }
+        const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
+        const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+        const cacheKey = `${fontKey}|${w.displayText}`
+        const cached = wordWidthCache.get(cacheKey)
+        
+        if (cached !== undefined) {
+          w.pixelWidth = cached
+          continue
+        }
 
-      // Cache miss: measure and store
-      let font = fontCache.get(fontKey)
-      if (!font) {
-        const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
-        const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
-        font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
-        fontCache.set(fontKey, font)
+        // Cache miss & inside hot zone: measure and store
+        let font = fontCache.get(fontKey)
+        if (!font) {
+          const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
+          const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
+          font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
+          fontCache.set(fontKey, font)
+        }
+        ctx.font = font
+        const fullWidth = ctx.measureText(w.displayText).width
+        
+        // Tighten spacing for headers: use unscaled space width (Space Locking)
+        if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
+          const textWidth = ctx.measureText(w.displayText.trimEnd()).width
+          // Lock space width to standard body size
+          w.pixelWidth = textWidth + metrics.spaceW
+        } else {
+          w.pixelWidth = fullWidth
+        }
+        // LRU eviction: delete oldest when at capacity
+        if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
+          const oldest = wordWidthCache.keys().next().value
+          if (oldest !== undefined) wordWidthCache.delete(oldest)
+        }
+        wordWidthCache.set(cacheKey, w.pixelWidth)
       }
-      ctx.font = font
-      const fullWidth = ctx.measureText(w.displayText).width
-
-      // Tighten spacing for headers: use unscaled space width (Space Locking)
-      if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
-        const textWidth = ctx.measureText(w.displayText.trimEnd()).width
-        // Lock space width to standard body size
-        w.pixelWidth = textWidth + metrics.spaceW
-      } else {
-        w.pixelWidth = fullWidth
+    } else {
+      // Paragraph mode: existing simple loop
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i]
+        if (w.imageUrl) {
+          const entry = imageCache.get(w.imageUrl)
+          let drawW = fallbackW
+          let drawH = fallbackH
+          if (entry && entry.status === 'loaded' && entry.naturalWidth > 0 && entry.naturalHeight > 0) {
+            const scale = Math.min(1, blockW / entry.naturalWidth)
+            drawW = Math.round(entry.naturalWidth * scale)
+            drawH = Math.round(entry.naturalHeight * scale)
+          }
+          w.imageW = drawW
+          w.imageH = drawH
+          w.pixelWidth = Math.max(1, drawW)
+          w.breakAfter = true
+          w.breakAfterRows = Math.max(1, Math.ceil(drawH / metrics.lineH))
+          continue
+        }
+        const scaleSize = Math.max(1, Math.round(fontSize * w.baseScale))
+        const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
+  
+        // Check word width cache first
+        const cacheKey = `${fontKey}|${w.displayText}`
+        const cached = wordWidthCache.get(cacheKey)
+        if (cached !== undefined) {
+          w.pixelWidth = cached
+          continue
+        }
+  
+        // Cache miss: measure and store
+        let font = fontCache.get(fontKey)
+        if (!font) {
+          const stylePart = w.fontStyle === 'normal' ? '' : w.fontStyle
+          const weightPart = w.fontWeight === 'normal' ? '' : w.fontWeight
+          font = `${stylePart} ${weightPart} ${scaleSize}px ${fontFamily}`.replace(/\s+/g, ' ').trim()
+          fontCache.set(fontKey, font)
+        }
+        ctx.font = font
+        const fullWidth = ctx.measureText(w.displayText).width
+  
+        // Tighten spacing for headers: use unscaled space width (Space Locking)
+        if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
+          const textWidth = ctx.measureText(w.displayText.trimEnd()).width
+          // Lock space width to standard body size
+          w.pixelWidth = textWidth + metrics.spaceW
+        } else {
+          w.pixelWidth = fullWidth
+        }
+        // LRU eviction: delete oldest when at capacity
+        if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
+          const oldest = wordWidthCache.keys().next().value
+          if (oldest !== undefined) wordWidthCache.delete(oldest)
+        }
+        wordWidthCache.set(cacheKey, w.pixelWidth)
       }
-      // LRU eviction: delete oldest when at capacity
-      if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
-        const oldest = wordWidthCache.keys().next().value
-        if (oldest !== undefined) wordWidthCache.delete(oldest)
-      }
-      wordWidthCache.set(cacheKey, w.pixelWidth)
     }
     ctx.font = fontString
     addPerfSample('updateWordColsMs', performance.now() - t0)
@@ -462,7 +709,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, hoveredSentence))
     }
 
-    sentenceCenterCache.clear()
     addPerfSample('applyScopeMs', performance.now() - t0)
   }
 
@@ -525,7 +771,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     metrics,
     fontFamily,
     fontCache,
-    sentenceCenterCache,
     getSentenceMetrics: (index: number) => {
       // Offset global index to local scope
       const local = index - sentenceOffset
@@ -667,14 +912,35 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     measureFont()
+    
+    // Warm cache: Synchronously measure hot zone (e.g., ±500 words or ±20 sentences)
+    // Background task: Measure the rest
+    
+    // Determine hot zone
+    let startSent = 0
+    let endSent = sentenceCountInScope
+    
+    // If we have an anchor/hover, center around it
+    const centerSent = hoveredSentenceGlobal() ?? 0
+    // Buffer of ~20 sentences should cover >500 words
+    startSent = Math.max(0, centerSent - 20)
+    endSent = Math.min(sentenceCountInScope, centerSent + 30) // +30 to look ahead more
+    
+    preWarmWidthCache(startSent, endSent) 
+    
+    // Schedule background for the rest
+    backgroundTaskVersion++
+    // Start background task from where we left off, or from 0? 
+    // Best to just scan everything eventually. Start from 0 is simple.
+    scheduleBackgroundWarming(backgroundTaskVersion, 0)
+
     updateWordCols()
-    const layout = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
-    applyTargets(visibleWords, layout)
+    const { maxRow } = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
+    lastLayoutMaxRow = maxRow
     
     // Eagerly update sentence metrics
     updateSentenceMetrics()
     
-    sentenceCenterCache.clear()
     // Update vertical padding using cached maxRow (no re-scan)
     updateVerticalPadding()
 
@@ -850,22 +1116,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   // Cached maxRow from last applyTargets (avoids re-scan in measureFont)
   let lastLayoutMaxRow = 0
-
-  function applyTargets(words: Word[], targets: LayoutMap) {
-    let maxRow = 0
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i]
-      const t = targets.get(w.id)
-      if (!t) continue
-      w.targetX = t.col
-      w.targetY = t.row
-      // Track maxRow including image row span
-      const span = wordRowSpan(w)
-      const endRow = w.targetY + span - 1
-      if (endRow > maxRow) maxRow = endRow
-    }
-    lastLayoutMaxRow = maxRow
-  }
 
   // Hot-range animation: only animate words near viewport
   const HOT_RANGE_MARGIN_ROWS = 20
@@ -1319,6 +1569,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     setModel,
     commit,
     destroy,
+    batch,
     getPerfMetrics: () => ({
       updateWordColsMs: getPerfAvg('updateWordColsMs'),
       applyScopeMs: getPerfAvg('applyScopeMs'),

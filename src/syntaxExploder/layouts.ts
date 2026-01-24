@@ -1,11 +1,11 @@
-import type { LayoutMap, LayoutContext } from './experiments'
+import type { LayoutContext, LayoutResult } from './experiments'
 
-export function layoutReaderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutMap {
-  const map: LayoutMap = new Map()
+export function layoutReaderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutResult {
   const words = overrideWords ?? model.words
   const maxWidth = metrics.maxCols
   let row = 0
   let x = 0
+  let maxRow = 0
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i]
@@ -16,7 +16,14 @@ export function layoutReaderPixels({ model, metrics, words: overrideWords, parag
       x = 0
     }
 
-    map.set(w.id, { col: Math.round(x), row })
+    w.targetX = Math.round(x)
+    w.targetY = row
+    
+    // Track maxRow including image span
+    const span = w.imageH ? Math.max(1, Math.ceil(w.imageH / metrics.lineH)) : 1
+    const endRow = row + span - 1
+    if (endRow > maxRow) maxRow = endRow
+
     x += width
 
     const isParagraphEnd = !next || next.paragraphIndex !== w.paragraphIndex
@@ -28,11 +35,10 @@ export function layoutReaderPixels({ model, metrics, words: overrideWords, parag
     }
   }
 
-  return map
+  return { maxRow }
 }
 
-export function layoutLadderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutMap {
-  const map: LayoutMap = new Map()
+export function layoutLadderPixels({ model, metrics, words: overrideWords, paragraphBreakRows = 0 }: LayoutContext): LayoutResult {
   const words = overrideWords ?? model.words
   const maxWidth = metrics.maxCols
   const maxIndent = Math.floor(maxWidth * 0.18)
@@ -40,6 +46,7 @@ export function layoutLadderPixels({ model, metrics, words: overrideWords, parag
   let row = 0
   let x = 0
   let indent = 0
+  let maxRow = 0
 
   for (let i = 0; i < words.length; i++) {
     const w = words[i]
@@ -52,7 +59,14 @@ export function layoutLadderPixels({ model, metrics, words: overrideWords, parag
       x = indent
     }
 
-    map.set(w.id, { col: Math.round(x), row })
+    w.targetX = Math.round(x)
+    w.targetY = row
+    
+    // Track maxRow
+    const span = w.imageH ? Math.max(1, Math.ceil(w.imageH / metrics.lineH)) : 1
+    const endRow = row + span - 1
+    if (endRow > maxRow) maxRow = endRow
+
     x += width
 
     const isParagraphEnd = !next || next.paragraphIndex !== w.paragraphIndex
@@ -65,5 +79,5 @@ export function layoutLadderPixels({ model, metrics, words: overrideWords, parag
     }
   }
 
-  return map
+  return { maxRow }
 }
