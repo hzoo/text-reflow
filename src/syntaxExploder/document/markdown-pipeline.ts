@@ -58,7 +58,7 @@ export function stripJinaPreamble(raw: string): string {
 
 export function markdownToReadingText(raw: string): string {
   if (!raw) return ''
-  const source = normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw)))
+  const source = normalizeEmphasisAdjacency(normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw))))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const lines: string[] = []
   for (const token of tokens) {
@@ -71,7 +71,7 @@ export function markdownToReadingText(raw: string): string {
 
 export function markdownToParagraphs(raw: string): string[] {
   if (!raw) return []
-  const source = normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw)))
+  const source = normalizeEmphasisAdjacency(normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw))))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const paragraphs: string[] = []
   let buffer: string[] = []
@@ -258,6 +258,49 @@ function inlineTokensToText(tokens: any): string {
     }
   }
   return collapseInlineSpaces(parts.join(' '))
+}
+
+// Jina Reader sometimes outputs markdown with bold/italic immediately adjacent
+// to the next word (e.g. "**Bold.**Here"), which prevents marked from
+// tokenizing the emphasis. Normalize by inserting a space after the closing
+// marker when the next character is a letter.
+function normalizeEmphasisAdjacency(source: string): string {
+  if (!source) return source
+
+  const normalizeNonCode = (s: string) => {
+    // Skip inline code spans
+    const codeSpanRe = /`[^`]*`/g
+    let out = ''
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = codeSpanRe.exec(s)) !== null) {
+      out += normalizeTextRuns(s.slice(last, m.index))
+      out += m[0]
+      last = m.index + m[0].length
+    }
+    out += normalizeTextRuns(s.slice(last))
+    return out
+  }
+
+  const normalizeTextRuns = (s: string) => {
+    // Bold: **...**Here  /  __...__Here
+    return s
+      .replace(/\*\*([^*\n]+?)\*\*(?=\p{L})/gu, '**$1** ')
+      .replace(/__([^_\n]+?)__(?=\p{L})/gu, '__$1__ ')
+  }
+
+  // Skip fenced code blocks entirely (```...``` or ~~~...~~~)
+  const fenceRe = /(^|\n)(```|~~~)[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g
+  let out = ''
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = fenceRe.exec(source)) !== null) {
+    out += normalizeNonCode(source.slice(last, m.index))
+    out += m[0]
+    last = m.index + m[0].length
+  }
+  out += normalizeNonCode(source.slice(last))
+  return out
 }
 
 function collapseSpaces(value: string): string {

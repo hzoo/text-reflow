@@ -234,52 +234,6 @@ export function createRenderer(state: RenderState) {
     ctx.restore()
   }
 
-  function drawDebug(w: Word, pos: WordPos) {
-    const s = pos.s
-    const width = wordWidth(w) * s
-    const height = wordHeight(w) * s
-    
-    ctx.save()
-    
-    // 1. Draw segmentation if word has a space
-    if (w.displayText.endsWith(' ') && !w.imageUrl) {
-      // Measure text without space at current scale
-      const font = fontForScale(s, w.fontStyle, w.fontWeight)
-      ctx.font = font
-      const textOnlyW = ctx.measureText(w.displayText.trimEnd()).width
-      const spaceW = width - textOnlyW
-
-      // Blue zone: Letters
-      ctx.fillStyle = 'rgba(50, 100, 255, 0.2)'
-      ctx.fillRect(pos.x, pos.y, textOnlyW, height)
-      ctx.strokeStyle = 'rgba(50, 100, 255, 0.4)'
-      ctx.strokeRect(pos.x, pos.y, textOnlyW, height)
-
-      // Cyan zone: Space
-      ctx.fillStyle = 'rgba(0, 255, 200, 0.15)'
-      ctx.fillRect(pos.x + textOnlyW, pos.y, spaceW, height)
-      ctx.strokeStyle = 'rgba(0, 255, 200, 0.3)'
-      ctx.strokeRect(pos.x + textOnlyW, pos.y, spaceW, height)
-
-      // Label
-      ctx.fillStyle = 'rgba(255, 50, 50, 0.9)'
-      const labelSize = Math.max(8, Math.min(12, 10 * s))
-      ctx.font = `${labelSize}px ui-monospace, monospace`
-      const metricsText = `T:${(textOnlyW/s).toFixed(0)} S:${(spaceW/s).toFixed(0)}`
-      ctx.fillText(metricsText, pos.x + 2, pos.y - 2)
-    } else {
-      // Standard single box for non-spaced words or images
-      ctx.strokeStyle = 'rgba(255, 50, 50, 0.4)'
-      ctx.lineWidth = 1
-      ctx.strokeRect(pos.x, pos.y, width, height)
-      ctx.fillStyle = 'rgba(255, 50, 50, 0.8)'
-      const labelSize = Math.max(8, Math.min(12, 10 * s))
-      ctx.font = `${labelSize}px ui-monospace, monospace`
-      ctx.fillText(`${w.pixelWidth.toFixed(0)}/${w.displayText.length}`, pos.x + 2, pos.y - 2)
-    }
-    
-    ctx.restore()
-  }
 
   function maybePreloadImage(w: Word, pos: WordPos) {
     if (!w.imageUrl) return
@@ -297,7 +251,6 @@ export function createRenderer(state: RenderState) {
     } else {
       drawWordText(w, pos)
     }
-    if (state.debug) drawDebug(w, pos)
   }
 
   function drawWordRedactRect(w: Word) {
@@ -334,7 +287,6 @@ export function createRenderer(state: RenderState) {
       const width = Math.max(1, w.pixelWidth) * pos.s
       ctx.fillRect(pos.x, pos.y + 2 * pos.s, width - 2 * pos.s, metrics.lineH * pos.s - 4 * pos.s)
       ctx.fillStyle = state.theme.text
-      if (state.debug) drawDebug(w, pos)
       return
     }
 
@@ -360,7 +312,6 @@ export function createRenderer(state: RenderState) {
     }
     // Font reset handled by setFont logic in next iteration
     
-    if (state.debug) drawDebug(w, pos)
   }
 
   function wordUnder(px: number, py: number): Word | null {

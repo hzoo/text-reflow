@@ -109,7 +109,7 @@ export function DebugPanel({ active, data }: DebugPanelProps) {
       </div>
       
       {!collapsed && (
-        <div class="flex-1 overflow-auto p-2.5 px-3 text-[11px] leading-snug text-accent">
+        <div data-native-scroll="true" class="flex-1 overflow-auto p-2.5 px-3 text-[11px] leading-snug text-accent">
           <Row label="mode" value={data.mode} />
           <Row label="view" value={data.view} />
           <Row label="para" value={`${data.paraIndex + 1}/${data.paraTotal}`} />

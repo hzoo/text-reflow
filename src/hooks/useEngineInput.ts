@@ -112,6 +112,9 @@ export function useEngineInput(deps: UseEngineInputDeps) {
     // --- Wheel ---
     const wheelAccum = { value: 0 }
     const handleWheel = (e: WheelEvent) => {
+      const target = e.target as Element | null
+      if (target && target.closest('[data-native-scroll="true"]')) return
+
       // Allow scrolling even when HUD is open
       if (Math.abs(e.deltaY) < 1) return
       e.preventDefault()
