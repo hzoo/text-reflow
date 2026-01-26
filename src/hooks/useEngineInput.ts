@@ -10,7 +10,7 @@ import {
   isAutoFont$,
 } from '../state/signals'
 import { pasteToast$ } from '../components/PasteToast'
-import { addEntry, fetchUrlToEntry } from '../state/library'
+import { addEntry, fetchUrlToEntry, normalizeUrlForJina } from '../state/library'
 
 type Engine = ReturnType<typeof createEngine>
 
@@ -202,11 +202,12 @@ export function useEngineInput(deps: UseEngineInputDeps) {
       const text = e.clipboardData?.getData('text/plain')?.trim()
       if (!text) return
       e.preventDefault()
-      const isUrl = /^https?:\/\//i.test(text)
+      const normalized = normalizeUrlForJina(text)
+      const isUrl = Boolean(normalized)
       const preview = isUrl
-        ? (() => { try { return new URL(text).hostname } catch { return text.slice(0, 40) } })()
+        ? (() => { try { return new URL(normalized!).hostname } catch { return normalized!.slice(0, 40) } })()
         : text.slice(0, 40)
-      pasteToast$.value = { kind: isUrl ? 'url' : 'text', value: text, preview }
+      pasteToast$.value = { kind: isUrl ? 'url' : 'text', value: isUrl ? normalized! : text, preview }
     }
 
     // --- Drag & Drop ---

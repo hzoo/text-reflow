@@ -267,7 +267,17 @@ function HistoryTab({ urlRef, onLoadUrl }: any) {
           <Button onClick={onLoadUrl} class="h-10 px-5 rounded-2xl bg-accent/10 text-accent font-bold border-none hover:bg-accent hover:text-bg">Load</Button>
         </div>
         <div class="text-[10px] text-muted/40 px-1 italic">
-          Paste URLs or text anywhere to load.
+          Paste URLs or text anywhere to load. Fetches via{' '}
+          <a
+            class="underline decoration-muted/30 hover:decoration-accent/40 hover:text-accent transition-colors"
+            href="https://jina.ai/reader/"
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Jina Reader
+          </a>
+          .
         </div>
       </div>
     </div>
@@ -320,4 +330,3 @@ function FooterToggle({ label, active, onClick, kbd }: { label: string; active: 
     </button>
   )
 }
-

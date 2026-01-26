@@ -97,14 +97,51 @@ export function deleteEntry(id: string) {
 }
 
 export async function fetchUrlToEntry(url: string): Promise<TextEntry> {
-  const response = await fetch(`https://r.jina.ai/${url}`)
+  const normalized = normalizeUrlForJina(url)
+  if (!normalized) throw new Error('Invalid URL')
+
+  const response = await fetch(`https://r.jina.ai/${normalized}`)
   if (!response.ok) {
     const errorText = await response.text()
     throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
   }
   const raw = (await response.text()).trim()
   if (!raw) throw new Error('No content returned.')
-  return addEntry({ content: raw, isMarkdown: true, source: url })
+  return addEntry({ content: raw, isMarkdown: true, source: normalized })
+}
+
+export function normalizeUrlForJina(raw: string): string | null {
+  let s = raw.trim()
+  if (!s) return null
+
+  // Common copy/paste wrappers
+  s = s.replace(/^[<\[(\s]+/, '').replace(/[\])>\s]+$/, '')
+
+  // Handle "prefix/https://..." (extract embedded URL)
+  const embedded = s.search(/https?:\/\//i)
+  if (embedded > 0) s = s.slice(embedded)
+
+  // Accept bare domains (no whitespace)
+  if (!/^https?:\/\//i.test(s) && !/\s/.test(s) && /\.[a-z]{2,}(?:\/|$)/i.test(s)) {
+    s = `https://${s}`
+  }
+
+  let u: URL
+  try {
+    u = new URL(s)
+  } catch {
+    return null
+  }
+
+  // Unwrap existing r.jina.ai links
+  if (u.hostname === 'r.jina.ai') {
+    const after = u.href.replace(/^https?:\/\/r\.jina\.ai\/?/i, '')
+    const again = normalizeUrlForJina(after)
+    return again
+  }
+
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+  return u.href
 }
 
 /** Bootstrap: migrate old reflow-text into library if library is empty */
