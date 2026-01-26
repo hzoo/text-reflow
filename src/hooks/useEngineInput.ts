@@ -70,6 +70,9 @@ export function useEngineInput(deps: UseEngineInputDeps) {
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
 
+      // Ignore app keybinds when using OS/browser shortcuts (paste, copy, etc.)
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+
       const engine = engineRef.current
       if (!engine) return
 

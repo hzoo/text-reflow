@@ -155,10 +155,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let backgroundWarmTimer: ReturnType<typeof setTimeout> | null = null
   let widthWarmComplete = false
   let widthWarmDidAdd = false
+  let warnedNonFiniteWidth = false
+  let warnedNonFiniteLineH = false
 
   function resetWidthWarm() {
     widthWarmComplete = false
     widthWarmDidAdd = false
+    warnedNonFiniteWidth = false
+    warnedNonFiniteLineH = false
     backgroundTaskVersion++
     if (backgroundWarmTimer) clearTimeout(backgroundWarmTimer)
     backgroundWarmTimer = null
@@ -269,6 +273,13 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function measureFont() {
+    if (!Number.isFinite(fontSize)) {
+      fontSize = 18
+      if (!warnedNonFiniteWidth) {
+        warnedNonFiniteWidth = true
+        console.error('[engine] non-finite fontSize; resetting to 18')
+      }
+    }
     ctx.textBaseline = 'top'
     fontString = `${fontSize}px ${fontFamily}`
     ctx.font = fontString
@@ -285,17 +296,28 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     const m = ctx.measureText('M')
     const ascent = m.actualBoundingBoxAscent || fontSize * 0.75
     const descent = m.actualBoundingBoxDescent || fontSize * 0.25
-    metrics.lineH = Math.max(fontSize, (ascent + descent) * 1.35)
+    const nextLineH = Math.max(fontSize, (ascent + descent) * 1.35)
+    if (Number.isFinite(nextLineH) && nextLineH > 1) {
+      metrics.lineH = nextLineH
+    } else {
+      metrics.lineH = Math.max(12, fontSize)
+      if (!warnedNonFiniteLineH) {
+        warnedNonFiniteLineH = true
+        console.error('[engine] non-finite lineH; using fallback', { nextLineH, fontSize, fontFamily })
+      }
+    }
 
     // Responsive: always fit within viewport
     const minPad = Math.max(16, Math.min(32, window.innerWidth * 0.04))
     const viewportWidth = window.innerWidth - minPad * 2
 
     // Cap content width to viewport
-    const effectiveMaxWidth = Math.min(viewportWidth, maxContentWidth)
+    const safeMaxWidth = Number.isFinite(maxContentWidth) ? maxContentWidth : 720
+    const effectiveMaxWidth = Math.min(viewportWidth, safeMaxWidth)
 
     // Layout width is in pixels (maxCols == maxWidthPx)
-    metrics.maxCols = Math.max(200, Math.floor(effectiveMaxWidth))
+    const effective = Number.isFinite(effectiveMaxWidth) ? effectiveMaxWidth : 720
+    metrics.maxCols = Math.max(200, Math.floor(effective))
 
     // Center block horizontally
     metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - metrics.maxCols) / 2))
@@ -361,6 +383,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         pixelWidth = textWidth + metrics.spaceW
       }
       
+      if (!Number.isFinite(pixelWidth) || pixelWidth <= 0) continue
       wordWidthCache.set(cacheKey, pixelWidth)
       if (wordWidthCache.size > WORD_WIDTH_CACHE_MAX) {
         const oldest = wordWidthCache.keys().next().value
@@ -417,6 +440,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
           pixelWidth = textWidth + metrics.spaceW
         }
         
+        if (!Number.isFinite(pixelWidth) || pixelWidth <= 0) continue
         wordWidthCache.set(cacheKey, pixelWidth)
         widthWarmDidAdd = true
         if (wordWidthCache.size > WORD_WIDTH_CACHE_MAX) {
@@ -546,7 +570,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     const t0 = performance.now()
     const words = visibleWords
-    const blockW = metrics.maxCols
+    const blockW = Number.isFinite(metrics.maxCols) ? metrics.maxCols : Math.max(200, window.innerWidth)
     const fallbackW = Math.max(1, Math.min(blockW, 360))
     const fallbackH = Math.max(metrics.lineH, Math.round(fallbackW * 0.6))
     // Determine hot zone for updateWordCols
@@ -613,7 +637,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
            if (len > 0 && w.displayText.endsWith(' ')) {
              estimated = (len - 1) * metrics.charW + metrics.spaceW
            }
-           w.pixelWidth = estimated
+           w.pixelWidth = Number.isFinite(estimated) && estimated > 0 ? estimated : 1
            continue
         }
 
@@ -621,8 +645,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         const fontKey = `${w.fontStyle}|${w.fontWeight}|${scaleSize}`
         const cacheKey = `${fontKey}|${w.displayText}`
         const cached = wordWidthCache.get(cacheKey)
-        
-        if (cached !== undefined) {
+        if (cached !== undefined && Number.isFinite(cached) && cached > 0) {
           w.pixelWidth = cached
           continue
         }
@@ -642,9 +665,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         if (w.baseScale > 1.03 && w.displayText.endsWith(' ')) {
           const textWidth = ctx.measureText(w.displayText.trimEnd()).width
           // Lock space width to standard body size
-          w.pixelWidth = textWidth + metrics.spaceW
+          const width = textWidth + metrics.spaceW
+          w.pixelWidth = Number.isFinite(width) && width > 0 ? width : 1
         } else {
-          w.pixelWidth = fullWidth
+          w.pixelWidth = Number.isFinite(fullWidth) && fullWidth > 0 ? fullWidth : 1
         }
         // LRU eviction: delete oldest when at capacity
         if (wordWidthCache.size >= WORD_WIDTH_CACHE_MAX) {
@@ -711,6 +735,27 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         wordWidthCache.set(cacheKey, w.pixelWidth)
       }
     }
+
+    if (debug && !warnedNonFiniteWidth) {
+      for (let i = 0; i < Math.min(visibleWords.length, 200); i++) {
+        const w = visibleWords[i]
+        if (!Number.isFinite(w.pixelWidth) || w.pixelWidth <= 0) {
+          warnedNonFiniteWidth = true
+          console.warn('[engine] non-finite pixelWidth', {
+            id: w.id,
+            text: w.text,
+            displayText: w.displayText,
+            pixelWidth: w.pixelWidth,
+            fontSize,
+            fontFamily,
+            fontString,
+            maxCols: metrics.maxCols,
+            lineH: metrics.lineH,
+          })
+          break
+        }
+      }
+    }
     ctx.font = fontString
     addPerfSample('updateWordColsMs', performance.now() - t0)
   }
@@ -731,6 +776,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       // O(1) lookup via precomputed wordsByParagraph
       visibleWords = model.wordsByParagraph[paragraphIndex] || []
     }
+
+    // Scope changes can swap in words whose widths were never computed
+    // (e.g. starting in split mode then switching to full). Force a width
+    // update so layout doesn't fall back to 1px widths and overlap text.
+    metricsDirty = true
 
     if (sentenceCountInScope <= 0) {
       hoveredSentence = null
@@ -1036,6 +1086,24 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     addPerfSample('layoutMs', performance.now() - t0)
+
+    if (debug) {
+      const words = visibleWords
+      if (words.length > 200) {
+        let minY = Infinity
+        let maxY = -Infinity
+        for (let i = 0; i < Math.min(words.length, 800); i++) {
+          const y = words[i].targetY
+          if (!Number.isFinite(y)) continue
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+        if (minY !== Infinity && maxY !== -Infinity && maxY - minY < 2) {
+          console.warn('[engine] suspiciously flat layout', { wordCount: words.length, minY, maxY })
+        }
+      }
+    }
+
     // Throttle layout notifications for debug panel
     const now = performance.now()
     if (now - lastLayoutNotify > LAYOUT_NOTIFY_THROTTLE) {
@@ -1056,18 +1124,28 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
   }
 
+  // Like snapToTargets(), but preserves camera animation (pad/pan).
+  function snapWordsToTargets() {
+    for (const w of visibleWords) {
+      w.animX = w.targetX
+      w.animY = w.targetY
+      w.animScale = w.targetScale
+    }
+  }
+
   function setScope(nextScope: LayoutScope, opts: { snap?: boolean } = {}) {
     prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
     applyScope(nextScope)
     layoutCurrentBeat()
-    if (opts.snap) {
-      snapToTargets()
-    }
+    // Scope swaps change the visible word set; avoid words flying in from (0,0).
+    // Keep camera (pad/pan) animatable unless caller explicitly requests snap.
+    if (opts.snap) snapToTargets()
+    else snapWordsToTargets()
     notifyStateChange()
     invalidate()
   }
 
-  function setModel(nextModel: DocumentModel, opts: { snap?: boolean } = {}) {
+  function setModel(nextModel: DocumentModel, _opts: { snap?: boolean } = {}) {
     prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
     model = nextModel
     renderState.model = model
@@ -1076,9 +1154,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     resetWidthWarm()
     applyScope(scope)
     layoutCurrentBeat()
-    if (opts.snap) {
-      snapToTargets()
-    }
+    // New model: previous anim positions are meaningless; avoid stacked frames.
+    snapToTargets()
     notifyStateChange()
     invalidate()
   }
@@ -1086,9 +1163,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function commit(update: EngineStateUpdate, opts: { snap?: boolean; useAnchor?: boolean } = {}) {
     let needsLayout = false
     let modelChanged = false
+    let scopeChanged = false
     let shouldAnchor = false
 
     if (update.model && update.model !== model) {
+      prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
       model = update.model
       renderState.model = model
       imageCache.clear()
@@ -1108,7 +1187,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (update.maxContentWidth !== undefined) {
-      const next = Math.max(200, Math.min(4000, update.maxContentWidth))
+      const raw = update.maxContentWidth
+      const next = Number.isFinite(raw) ? Math.max(200, Math.min(4000, raw)) : maxContentWidth
       if (next !== maxContentWidth) {
         maxContentWidth = next
         needsLayout = true
@@ -1117,7 +1197,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (update.fontSize !== undefined) {
-      const next = Math.max(10, Math.min(128, update.fontSize))
+      const raw = update.fontSize
+      const next = Number.isFinite(raw) ? Math.max(10, Math.min(128, raw)) : fontSize
       if (next !== fontSize) {
         fontSize = next
         wordWidthCache.clear()
@@ -1145,8 +1226,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     if (update.scope) {
+      prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
       applyScope(update.scope)
       needsLayout = true
+      scopeChanged = true
       // scope change = intentional navigation, don't anchor
     } else if (modelChanged) {
       applyScope(scope)
@@ -1160,9 +1243,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Use explicit opt if provided, otherwise auto-detect
     const useAnchor = opts.useAnchor ?? shouldAnchor
     layoutCurrentBeat(true, useAnchor)
-    if (opts.snap) {
-      snapToTargets()
-    }
+    // New model: always snap. Scope changes: snap words but preserve camera animation.
+    if (modelChanged || opts.snap) snapToTargets()
+    else if (scopeChanged) snapWordsToTargets()
     notifyStateChange()
     invalidate()
   }
@@ -1545,7 +1628,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setMaxWidth(w: number) {
-    maxContentWidth = Math.max(200, Math.min(4000, w))
+    maxContentWidth = Number.isFinite(w) ? Math.max(200, Math.min(4000, w)) : 720
     measureFont()
     layoutCurrentBeat(true, true)
   }
@@ -1555,7 +1638,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setFontSize(size: number) {
-    fontSize = Math.max(10, Math.min(128, size))
+    fontSize = Number.isFinite(size) ? Math.max(10, Math.min(128, size)) : 18
     wordWidthCache.clear()
     resetWidthWarm()
     layoutCurrentBeat(true, true)
