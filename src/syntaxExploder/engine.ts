@@ -870,7 +870,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Apply best size with anchor
     fontSize = bestSize
-    measureFont()
     layoutCurrentBeat(true, true)
 
     notifyStateChange()
@@ -905,7 +904,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Apply best size with anchor
     fontSize = bestSize
-    measureFont()
     layoutCurrentBeat(true, true)
   }
 
@@ -975,17 +973,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     const lineHChanged = Math.abs(oldLineH - metrics.lineH) > 0.5
 
-    // AFTER: Restore anchor position or fallback to centering
-    if (lineHChanged) {
-      // Font size changed: center the sentence (like j/k)
-      updatePanForSentence()
-    } else if (anchorScreenY != null && anchorSentence != null) {
+    // AFTER: Restore anchor position (stable focus), otherwise center
+    if (anchorScreenY != null && anchorSentence != null) {
       const { minRow, maxRow } = getSentenceRowBounds(anchorSentence)
       if (minRow !== Infinity) {
         const newCenterRow = (minRow + maxRow + 1) / 2
         const newScreenY = metrics.padY + newCenterRow * metrics.lineH + panY
         panY -= (newScreenY - anchorScreenY)
-        animPanY = panY
+        if (!lineHChanged) animPanY = panY
       } else {
         updatePanForSentence()
       }
@@ -993,25 +988,50 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       updatePanForSentence()
     }
 
-    // Rebase animY: solve oldVisualY = newVisualY
-    if (useAnchor) {
+    // Rebase animY: preserve on-screen position through metric changes.
+    // For font-size reflows, keep the focused sentence stable and avoid
+    // hard-to-follow horizontal shuffles by snapping X for non-focused words.
+    if (useAnchor && oldLineH > 0 && metrics.lineH > 0) {
+      const R = oldLineH / metrics.lineH
+      const C = (oldAnimPadY + oldAnimPanY - metrics.padY - panY) / metrics.lineH
+      const focusGlobal = hoveredSentenceGlobal()
+      let focusCenterRow: number | null = null
+      if (lineHChanged && focusGlobal != null) {
+        const { minRow, maxRow } = getSentenceRowBounds(focusGlobal)
+        if (minRow !== Infinity) focusCenterRow = (minRow + maxRow + 1) / 2
+      }
+      const REFLOW_ANIM_ROW_RADIUS = 14
+
       if (lineHChanged) {
-        // Snap everything for instant transition
+        // Lock camera immediately; animate surrounding lines around it.
         animPadY = metrics.padY
         animPadX = metrics.padX
         animPanY = panY
-        for (const w of visibleWords) {
-          w.animY = w.targetY
+      }
+
+      for (let i = 0, len = visibleWords.length; i < len; i++) {
+        const w = visibleWords[i]
+        if (!lineHChanged) {
+          w.animY = C + w.animY * R
+          continue
+        }
+
+        if (focusGlobal != null && w.sentenceIndex === focusGlobal) {
+          // Center sentence: snap (stable anchor)
           w.animX = w.targetX
+          w.animY = w.targetY
           w.animScale = w.targetScale
+          continue
         }
-      } else if (oldLineH > 0 && metrics.lineH > 0) {
-        // Original rebasing for non-lineH changes
-        const R = oldLineH / metrics.lineH
-        const C = (oldAnimPadY + oldAnimPanY - metrics.padY - panY) / metrics.lineH
-        for (let i = 0, len = visibleWords.length; i < len; i++) {
-          visibleWords[i].animY = C + visibleWords[i].animY * R
+
+        // Reflow animation: vertical-only glide near focus; snap farther away.
+        w.animX = w.targetX
+        if (focusCenterRow != null && Math.abs(w.targetY - focusCenterRow) > REFLOW_ANIM_ROW_RADIUS) {
+          w.animY = w.targetY
+        } else {
+          w.animY = C + w.animY * R
         }
+        w.animScale = w.targetScale
       }
     }
 
@@ -1538,7 +1558,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontSize = Math.max(10, Math.min(128, size))
     wordWidthCache.clear()
     resetWidthWarm()
-    measureFont()
     layoutCurrentBeat(true, true)
   }
 
@@ -1547,7 +1566,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     renderState.fontFamily = fontFamily
     wordWidthCache.clear()
     resetWidthWarm()
-    measureFont()
     layoutCurrentBeat(true, true)
   }
 
