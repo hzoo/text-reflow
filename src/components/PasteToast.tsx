@@ -9,9 +9,11 @@ export interface PasteToastData {
 }
 
 export const pasteToast$ = signal<PasteToastData | null>(null)
+export const loadingUrl$ = signal<string | null>(null)
 
 export function PasteToast() {
   const data = pasteToast$.value
+  const loadingUrl = loadingUrl$.value
 
   useEffect(() => {
     if (!data) return
@@ -33,6 +35,25 @@ export function PasteToast() {
       window.removeEventListener('keydown', handleKey)
     }
   }, [data])
+
+  // Show loading toast
+  if (loadingUrl) {
+    let hostname = loadingUrl
+    try { hostname = new URL(loadingUrl).hostname.replace(/^www\./, '') } catch {}
+    return (
+      <div class="fixed top-4 left-1/2 -translate-x-1/2 z-50
+        bg-hud-bg border border-hud-border backdrop-blur-xl
+        rounded-lg shadow-hud px-4 py-2.5
+        flex items-center gap-3 max-w-[90vw]
+        animate-[slideDown_150ms_ease-out]"
+      >
+        <div class="w-3 h-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+        <span class="text-[13px] text-accent truncate max-w-[240px]">
+          Loading {hostname}...
+        </span>
+      </div>
+    )
+  }
 
   if (!data) return null
 
@@ -74,7 +95,9 @@ export function PasteToast() {
 function confirm(data: PasteToastData) {
   pasteToast$.value = null
   if (data.kind === 'url') {
-    fetchUrlToEntry(data.value).catch(() => {})
+    loadingUrl$.value = data.value
+    fetchUrlToEntry(data.value)
+      .finally(() => { loadingUrl$.value = null })
   } else {
     addEntry({ content: data.value, isMarkdown: false })
   }

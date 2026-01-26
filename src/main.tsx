@@ -3,7 +3,8 @@ import { render } from 'preact'
 import { batch } from '@preact/signals'
 import { App, applyEngineScope, MONO_FONT } from './App'
 import { Agentation } from 'agentation'
-import { fetchUrlToEntry, addEntry } from './state/library'
+import { fetchUrlToEntry, normalizeUrlForJina } from './state/library'
+import { loadingUrl$ } from './components/PasteToast'
 import { createEngine } from './syntaxExploder/engine'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
 import {
@@ -35,16 +36,25 @@ import {
 } from './state/signals'
 import { LiteApp } from './lite/LiteApp'
 
-// URL param ingest: ?url= or ?text=
-const params = new URLSearchParams(location.search)
-const paramUrl = params.get('url')
-const paramText = params.get('text')
-if (paramUrl) {
-  fetchUrlToEntry(paramUrl).catch(() => {})
-  history.replaceState(null, '', location.pathname)
-} else if (paramText) {
-  addEntry({ content: paramText, isMarkdown: false })
-  history.replaceState(null, '', location.pathname)
+// URL ingest: /https://example.com/... form
+function getBootUrl(): string | null {
+  const rawPath = location.pathname || ''
+  if (rawPath.length > 1) {
+    let candidate = rawPath.slice(1)
+    try { candidate = decodeURIComponent(candidate) } catch {}
+    // Tolerate slash-collapsed URLs: https:/example.com -> https://example.com
+    candidate = candidate.replace(/^(https?):\/(?!\/)/i, '$1://')
+    return normalizeUrlForJina(candidate)
+  }
+  return null
+}
+
+const bootUrl = getBootUrl()
+if (bootUrl) {
+  loadingUrl$.value = bootUrl
+  fetchUrlToEntry(bootUrl)
+    .finally(() => { loadingUrl$.value = null })
+  // Keep the URL in the address bar for shareability
 }
 
 const root = document.querySelector<HTMLDivElement>('#app')!

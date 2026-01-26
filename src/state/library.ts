@@ -100,6 +100,13 @@ export async function fetchUrlToEntry(url: string): Promise<TextEntry> {
   const normalized = normalizeUrlForJina(url)
   if (!normalized) throw new Error('Invalid URL')
 
+  // Check if we already have this URL in the library
+  const existing = library$.value.find(e => e.source === normalized)
+  if (existing) {
+    setActive(existing.id)
+    return existing
+  }
+
   const response = await fetch(`https://r.jina.ai/${normalized}`)
   if (!response.ok) {
     const errorText = await response.text()

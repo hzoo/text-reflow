@@ -46,7 +46,7 @@ export const MOTION_PRESETS: Record<MotionPreset, { move: number; pan: number; f
 
 const DEFAULT_PREFS: ReflowPrefs = {
   beat: 'reader', focusStyle: 'gray', viewMode: 'full',
-  fullPush: false, moveSpeed: 1.8, panSpeed: 1.8, focusSpeed: 1.8, fontSize: 18,
+  fullPush: false, moveSpeed: 1.8, panSpeed: 1.8, focusSpeed: 1.8, fontSize: 24,
   sentence: 0, liteMode: true, liteVariant: 'stories',
   motionPreset: 'snappy',
 }
