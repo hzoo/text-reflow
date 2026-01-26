@@ -138,7 +138,8 @@ export function createRenderer(state: RenderState) {
   const tmpPos: WordPos = { x: 0, y: 0, s: 1 }
 
   function computeWordPosition(w: Word): WordPos {
-    const s = w.animScale * w.baseScale
+    const fontScale = w.animScale * w.baseScale
+    const zoomScale = w.animScale
 
     // Base position (unscaled)
     const baseX = state.animPadX + w.animX
@@ -147,17 +148,18 @@ export function createRenderer(state: RenderState) {
     let x = baseX
     let y = baseY
 
-    // For magnified words, zoom from the sentence center
-    if (s > state.scaleEps) {
+    // For magnified words, zoom from the sentence center.
+    // Important: baseScale (headings) should not trigger center-zoom.
+    if (zoomScale > state.scaleEps) {
       const { centerX, centerRow } = getSentenceCenter(w.sentenceIndex)
       const centerXPos = state.animPadX + centerX
       const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
-      x = centerXPos + (baseX - centerXPos) * s
-      y = centerY + (baseY - centerY) * s
+      x = centerXPos + (baseX - centerXPos) * zoomScale
+      y = centerY + (baseY - centerY) * zoomScale
     }
     tmpPos.x = x
     tmpPos.y = y
-    tmpPos.s = s
+    tmpPos.s = fontScale
     return tmpPos
   }
 

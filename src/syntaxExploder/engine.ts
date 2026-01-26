@@ -153,6 +153,16 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   // Background warming state
   let backgroundTaskVersion = 0
   let backgroundWarmTimer: ReturnType<typeof setTimeout> | null = null
+  let widthWarmComplete = false
+  let widthWarmDidAdd = false
+
+  function resetWidthWarm() {
+    widthWarmComplete = false
+    widthWarmDidAdd = false
+    backgroundTaskVersion++
+    if (backgroundWarmTimer) clearTimeout(backgroundWarmTimer)
+    backgroundWarmTimer = null
+  }
 
   function notifyStateChange() {
     if (batchDepth > 0) {
@@ -284,13 +294,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // Cap content width to viewport
     const effectiveMaxWidth = Math.min(viewportWidth, maxContentWidth)
 
-    // Calculate cols that fit
-    metrics.charW = 1
+    // Layout width is in pixels (maxCols == maxWidthPx)
     metrics.maxCols = Math.max(200, Math.floor(effectiveMaxWidth))
 
     // Center block horizontally
-    const blockW = metrics.maxCols * metrics.charW
-    metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - blockW) / 2))
+    metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - metrics.maxCols) / 2))
 
     // Vertical padding uses cached maxRow (avoids re-scanning words)
     updateVerticalPadding()
@@ -354,6 +362,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
       
       wordWidthCache.set(cacheKey, pixelWidth)
+      if (wordWidthCache.size > WORD_WIDTH_CACHE_MAX) {
+        const oldest = wordWidthCache.keys().next().value
+        if (oldest !== undefined) wordWidthCache.delete(oldest)
+      }
       
       // Safety cap: 5ms for synchronous "Hot Zone" warming
       if (performance.now() - t0 > 5) break 
@@ -365,7 +377,10 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     if (backgroundWarmTimer) clearTimeout(backgroundWarmTimer)
     
     backgroundWarmTimer = setTimeout(() => {
-      if (destroyed || currentVersion !== backgroundTaskVersion) return
+      if (destroyed || currentVersion !== backgroundTaskVersion) {
+        backgroundWarmTimer = null
+        return
+      }
       
       const t0 = performance.now()
       ctx.font = fontString
@@ -403,6 +418,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         }
         
         wordWidthCache.set(cacheKey, pixelWidth)
+        widthWarmDidAdd = true
+        if (wordWidthCache.size > WORD_WIDTH_CACHE_MAX) {
+          const oldest = wordWidthCache.keys().next().value
+          if (oldest !== undefined) wordWidthCache.delete(oldest)
+        }
       }
       
       // Schedule next chunk if not done
@@ -410,10 +430,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         scheduleBackgroundWarming(currentVersion, i)
       } else {
         backgroundWarmTimer = null
-        // Option A: Trigger one-time anchored layout to lock in widths
-        // Only if we haven't been destroyed/superseded
         if (!destroyed && currentVersion === backgroundTaskVersion) {
-           layoutCurrentBeat(true, true)
+          widthWarmComplete = true
+          // Trigger one-time anchored layout to lock in warmed widths
+          if (widthWarmDidAdd) {
+            // Force updateWordCols to apply cached widths everywhere.
+            metricsDirty = true
+            layoutCurrentBeat(true, true)
+          }
         }
       }
     }, 16) // Yield to main thread
@@ -522,7 +546,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     const t0 = performance.now()
     const words = visibleWords
-    const blockW = metrics.maxCols * metrics.charW
+    const blockW = metrics.maxCols
     const fallbackW = Math.max(1, Math.min(blockW, 360))
     const fallbackH = Math.max(metrics.lineH, Math.round(fallbackW * 0.6))
     // Determine hot zone for updateWordCols
@@ -532,6 +556,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // In full mode, only strict-measure the hot zone + buffer
     // In paragraph mode, measure everything (it's small)
     if (scope.mode === 'full') {
+      const allowCacheEverywhere = widthWarmComplete
       const center = hoveredSentenceGlobal() ?? 0
       // Buffer: 50 sentences above/below (covers fast scroll)
       hotStart = 0 // Start from top for accurate line breaking? 
@@ -580,10 +605,14 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         }
         
         // If outside hot zone, approximate immediately (skip cache lookup/string creation)
-        if (i < hotWordStart || i >= hotWordEnd) {
+        if (!allowCacheEverywhere && (i < hotWordStart || i >= hotWordEnd)) {
            // Approximation: Avg char width * length
            // We use metrics.charW (measured from 'a-z')
-           const estimated = w.displayText.length * metrics.charW
+           const len = w.displayText.length
+           let estimated = len * metrics.charW
+           if (len > 0 && w.displayText.endsWith(' ')) {
+             estimated = (len - 1) * metrics.charW + metrics.spaceW
+           }
            w.pixelWidth = estimated
            continue
         }
@@ -928,11 +957,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     
     preWarmWidthCache(startSent, endSent) 
     
-    // Schedule background for the rest
-    backgroundTaskVersion++
-    // Start background task from where we left off, or from 0? 
-    // Best to just scan everything eventually. Start from 0 is simple.
-    scheduleBackgroundWarming(backgroundTaskVersion, 0)
+    // Background warming: run once per font/model until complete
+    if (!widthWarmComplete && !backgroundWarmTimer) {
+      backgroundTaskVersion++
+      scheduleBackgroundWarming(backgroundTaskVersion, 0)
+    }
 
     updateWordCols()
     const { maxRow } = BEATS[beat].layout({ model, metrics, words: visibleWords, paragraphBreakRows })
@@ -1024,6 +1053,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     renderState.model = model
     imageCache.clear()
     wordWidthCache.clear()
+    resetWidthWarm()
     applyScope(scope)
     layoutCurrentBeat()
     if (opts.snap) {
@@ -1043,6 +1073,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       renderState.model = model
       imageCache.clear()
       wordWidthCache.clear()
+      resetWidthWarm()
       modelChanged = true
       needsLayout = true
     }
@@ -1051,6 +1082,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       fontFamily = update.fontFamily || defaultFontFamily
       renderState.fontFamily = fontFamily
       wordWidthCache.clear()
+      resetWidthWarm()
       needsLayout = true
       shouldAnchor = true
     }
@@ -1069,6 +1101,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       if (next !== fontSize) {
         fontSize = next
         wordWidthCache.clear()
+        resetWidthWarm()
         needsLayout = true
         shouldAnchor = true
       }
@@ -1504,6 +1537,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   function setFontSize(size: number) {
     fontSize = Math.max(10, Math.min(128, size))
     wordWidthCache.clear()
+    resetWidthWarm()
     measureFont()
     layoutCurrentBeat(true, true)
   }
@@ -1512,6 +1546,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     fontFamily = next || defaultFontFamily
     renderState.fontFamily = fontFamily
     wordWidthCache.clear()
+    resetWidthWarm()
     measureFont()
     layoutCurrentBeat(true, true)
   }

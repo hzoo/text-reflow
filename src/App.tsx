@@ -123,6 +123,10 @@ export function App({ engine }: AppProps) {
     }
     const paraIndex = currentPara$.value
     const counts = sentenceCounts$.value
+    const paraSentenceCount = counts[paraIndex] ?? 0
+    // During a full→paragraph scope switch, the engine can still be reporting the
+    // previous global sentence index for a tick. Ignore impossible locals.
+    if (paraSentenceCount > 0 && localSentence >= paraSentenceCount) return
     const offset = getSentenceOffset(counts, paraIndex)
     globalSentence$.value = offset + localSentence
   })
