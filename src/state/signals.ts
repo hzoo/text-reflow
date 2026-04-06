@@ -32,7 +32,9 @@ type ReflowPrefs = {
   fontSize: number
   sentence: number
   liteMode: boolean
-  liteVariant: 'scroll' | 'stories'
+  liteVariant: 'scroll' | 'poster'
+  liteFitUnit: 'sentence' | 'paragraph'
+  litePosterAlign: 'center' | 'left'
   motionPreset: MotionPreset
 }
 
@@ -47,7 +49,7 @@ export const MOTION_PRESETS: Record<MotionPreset, { move: number; pan: number; f
 const DEFAULT_PREFS: ReflowPrefs = {
   beat: 'reader', focusStyle: 'gray', viewMode: 'full',
   fullPush: false, moveSpeed: 1.8, panSpeed: 1.8, focusSpeed: 1.8, fontSize: 24,
-  sentence: 0, liteMode: true, liteVariant: 'stories',
+  sentence: 0, liteMode: true, liteVariant: 'poster', liteFitUnit: 'sentence', litePosterAlign: 'center',
   motionPreset: 'snappy',
 }
 
@@ -72,7 +74,10 @@ function loadPrefs(): Partial<ReflowPrefs> {
     if (typeof obj.fontSize === 'number' && obj.fontSize >= 8 && obj.fontSize <= 72) out.fontSize = obj.fontSize
     if (typeof obj.sentence === 'number' && obj.sentence >= 0 && Number.isInteger(obj.sentence)) out.sentence = obj.sentence
     if (typeof obj.liteMode === 'boolean') out.liteMode = obj.liteMode
-    if (obj.liteVariant === 'scroll' || obj.liteVariant === 'stories') out.liteVariant = obj.liteVariant
+    if (obj.liteVariant === 'scroll' || obj.liteVariant === 'poster') out.liteVariant = obj.liteVariant
+    if (obj.liteVariant === 'stories') out.liteVariant = 'poster'
+    if (obj.liteFitUnit === 'sentence' || obj.liteFitUnit === 'paragraph') out.liteFitUnit = obj.liteFitUnit
+    if (obj.litePosterAlign === 'center' || obj.litePosterAlign === 'left') out.litePosterAlign = obj.litePosterAlign
     if (MOTION_PRESET_IDS.includes(obj.motionPreset)) out.motionPreset = obj.motionPreset
     return out
   } catch { return {} }
@@ -115,7 +120,9 @@ export const fullPush$ = signal(prefs.fullPush)
 export const isAutoFont$ = signal(false)
 export const fontSize$ = signal(prefs.fontSize)
 export const liteMode$ = signal(prefs.liteMode)
-export const liteVariant$ = signal<'scroll' | 'stories'>(prefs.liteVariant)
+export const liteVariant$ = signal<'scroll' | 'poster'>(prefs.liteVariant)
+export const liteFitUnit$ = signal<'sentence' | 'paragraph'>(prefs.liteFitUnit)
+export const litePosterAlign$ = signal<'center' | 'left'>(prefs.litePosterAlign)
 
 // Sync motion speeds when preset changes
 effect(() => {
@@ -164,6 +171,8 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
     sentence: globalSentence$.value ?? 0,
     liteMode: liteMode$.value,
     liteVariant: liteVariant$.value,
+    liteFitUnit: liteFitUnit$.value,
+    litePosterAlign: litePosterAlign$.value,
     motionPreset: motionPreset$.value,
   }
   if (saveTimer) clearTimeout(saveTimer)

@@ -25,31 +25,83 @@
 
 .lite-sentence {
   opacity: 0.3;
-  transition: opacity 0.2s ease;
 }
 
 .lite-sentence.active {
   opacity: 1;
 }
 
-.lite-stories {
+.lite-poster {
   height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px 80px;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 68px)
+    18px
+    calc(env(safe-area-inset-bottom, 0px) + 116px);
   user-select: none;
   -webkit-user-select: none;
-  contain: strict;
   box-sizing: border-box;
+  contain: strict;
 }
 
-.lite-stories-text {
-  font-family: "Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif;
-  font-size: 22px;
-  line-height: 1.6;
+.lite-poster-stage {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+
+.lite-poster-stage.is-left {
+  align-items: flex-start;
+}
+
+.lite-poster-stage.is-center {
+  align-items: center;
+}
+
+.lite-poster-line {
+  display: flex;
+  align-items: flex-end;
+}
+
+.lite-poster-line.is-center {
+  justify-content: center;
   text-align: center;
-  max-width: 560px;
+}
+
+.lite-poster-line.is-left {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.lite-poster-piece {
+  font-family: "Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif;
+  line-height: 1;
+  white-space: pre;
+}
+
+.lite-poster-meta {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.58;
+  z-index: 10;
+}
+
+.lite-poster-empty {
+  text-align: center;
+  opacity: 0.55;
+  font-family: "Iowan Old Style", "Palatino", "Book Antiqua", "Georgia", serif;
+  font-size: 18px;
 }
 
 .lite-progress {
@@ -67,7 +119,6 @@
 .lite-progress-fill {
   height: 100%;
   background: var(--color-accent);
-  transition: width 0.15s ease;
 }
 
 .lite-hud {
@@ -79,6 +130,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
   background: var(--color-hud-bg);
   backdrop-filter: blur(12px);
@@ -86,7 +138,6 @@
   border-top: 1px solid var(--color-hud-border);
   z-index: 10;
   transform: translateY(0);
-  transition: transform 0.2s ease;
 }
 
 .lite-hud.collapsed {

@@ -13,7 +13,11 @@ import {
   isAutoFont$,
   debug$,
   READER_FONT,
-  isMobile
+  isMobile,
+  liteMode$,
+  liteVariant$,
+  liteFitUnit$,
+  litePosterAlign$,
 } from '../state/signals'
 import { library$, activeId$, setActive, deleteEntry, fetchUrlToEntry } from '../state/library'
 import { LayoutPicker } from './LayoutPicker'
@@ -27,6 +31,7 @@ export function ControlPanel() {
   const activeTab = activeTab$.value
   const urlRef = useRef<HTMLInputElement>(null)
   const mobile = isMobile()
+  const showFooter = !mobile
 
   const handleLoadUrl = async () => {
     const url = urlRef.current?.value.trim()
@@ -91,30 +96,31 @@ export function ControlPanel() {
         </div>
 
         {/* Content */}
-        <div class="flex-1 overflow-auto p-6 custom-scrollbar">
+        <div class={`flex-1 overflow-auto custom-scrollbar ${mobile ? 'p-5 pt-4' : 'p-6'}`}>
           {activeTab === 'style' && <StyleTab />}
           {activeTab === 'library' && <HistoryTab urlRef={urlRef} onLoadUrl={handleLoadUrl} />}
         </div>
 
-        {/* Footer */}
-        <div class="p-4 border-t border-hud-border/5 flex items-center justify-between px-6 bg-btn-bg/10">
-          <div class="flex gap-4">
-            <FooterToggle 
-              label="Debug" 
-              active={debug$.value} 
-              onClick={() => { debug$.value = !debug$.value }} 
-            />
-            <FooterToggle 
-              label="Spread" 
-              kbd="F"
-              active={fullPush$.value} 
-              onClick={() => { fullPush$.value = !fullPush$.value }} 
-            />
+        {showFooter && (
+          <div class="p-4 border-t border-hud-border/5 flex items-center justify-between px-6 bg-btn-bg/10">
+            <div class="flex gap-4">
+              <FooterToggle 
+                label="Debug" 
+                active={debug$.value} 
+                onClick={() => { debug$.value = !debug$.value }} 
+              />
+              <FooterToggle 
+                label="Spread" 
+                kbd="F"
+                active={fullPush$.value} 
+                onClick={() => { fullPush$.value = !fullPush$.value }} 
+              />
+            </div>
+            <div class="text-[11px] text-muted/80 font-medium italic" style={{ fontFamily: READER_FONT }}>
+              Esc to close
+            </div>
           </div>
-          <div class="text-[11px] text-muted/80 font-medium italic" style={{ fontFamily: READER_FONT }}>
-            Esc to close
-          </div>
-        </div>
+        )}
       </div>
     </>
   )
@@ -139,6 +145,12 @@ function TabButton({ id, label }: { id: TabId; label: string }) {
 }
 
 function StyleTab() {
+  const mobileLite = isMobile() && liteMode$.value
+
+  if (mobileLite) {
+    return <LiteStyleTab />
+  }
+
   return (
     <div class="flex flex-col gap-6">
       <section class="grid grid-cols-2 gap-4 items-end">
@@ -203,6 +215,82 @@ function StyleTab() {
             </button>
           ))}
         </div>
+      </section>
+    </div>
+  )
+}
+
+function LiteStyleTab() {
+  const variant = liteVariant$.value
+  const posterActive = variant === 'poster'
+
+  return (
+    <div class="flex flex-col gap-6">
+      <section class="flex flex-col gap-2">
+        <Label>Mode</Label>
+        <SegmentRow flat>
+          <Button active={variant === 'poster'} onClick={() => { liteVariant$.value = 'poster' }} class="flex-1 max-sm:min-h-11 max-sm:text-[13px]">
+            Poster
+          </Button>
+          <Button active={variant === 'scroll'} onClick={() => { liteVariant$.value = 'scroll' }} class="flex-1 max-sm:min-h-11 max-sm:text-[13px]">
+            Scroll
+          </Button>
+        </SegmentRow>
+      </section>
+
+      <section class={`flex flex-col gap-6 transition-opacity ${posterActive ? 'opacity-100' : 'opacity-45'}`}>
+        <section class="flex flex-col gap-2">
+          <Label>Fit Unit</Label>
+          <SegmentRow flat>
+            <Button
+              active={liteFitUnit$.value === 'sentence'}
+              disabled={!posterActive}
+              onClick={() => { liteFitUnit$.value = 'sentence' }}
+              class="flex-1 max-sm:min-h-11 max-sm:text-[13px]"
+            >
+              Sentence
+            </Button>
+            <Button
+              active={liteFitUnit$.value === 'paragraph'}
+              disabled={!posterActive}
+              onClick={() => { liteFitUnit$.value = 'paragraph' }}
+              class="flex-1 max-sm:min-h-11 max-sm:text-[13px]"
+            >
+              Paragraph
+            </Button>
+          </SegmentRow>
+        </section>
+
+        <section class="flex flex-col gap-2">
+          <Label>Align</Label>
+          <SegmentRow flat>
+            <Button
+              active={litePosterAlign$.value === 'center'}
+              disabled={!posterActive}
+              onClick={() => { litePosterAlign$.value = 'center' }}
+              class="flex-1 max-sm:min-h-11 max-sm:text-[13px]"
+            >
+              Center
+            </Button>
+            <Button
+              active={litePosterAlign$.value === 'left'}
+              disabled={!posterActive}
+              onClick={() => { litePosterAlign$.value = 'left' }}
+              class="flex-1 max-sm:min-h-11 max-sm:text-[13px]"
+            >
+              Left
+            </Button>
+          </SegmentRow>
+        </section>
+      </section>
+
+      <section class="flex flex-col gap-2.5">
+        <Label>What This Does</Label>
+        <p class="px-0.5 text-[12px] leading-relaxed text-accent/70 m-0 min-h-[3.5rem]">
+          {posterActive
+            ? `Poster makes the current ${liteFitUnit$.value} as large as possible inside the phone viewport.`
+            : 'Scroll keeps the document continuous so you can compare against the poster mode.'}
+        </p>
       </section>
     </div>
   )
@@ -308,6 +396,14 @@ function ScrubberGroup({ label, children, kbd, centered }: { label: string; chil
           </div>
         )}
       </div>
+      {children}
+    </div>
+  )
+}
+
+function SegmentRow({ children, flat = false }: { children: any; flat?: boolean }) {
+  return (
+    <div class={flat ? 'flex gap-2' : 'bg-btn-bg/80 p-1.5 rounded-xl border border-hud-border/10 shadow-inset flex gap-1.5'}>
       {children}
     </div>
   )

@@ -1,6 +1,6 @@
 import { liteVariant$ } from '../state/signals'
 import { LiteScroll } from './LiteScroll'
-import { LiteStories } from './LiteStories'
+import { LitePoster } from './LitePoster'
 import { LiteHUD } from './LiteHUD'
 import './lite.css'
 
@@ -8,7 +8,7 @@ export function LiteRoot() {
   const variant = liteVariant$.value
   return (
     <div class="lite-root">
-      {variant === 'scroll' ? <LiteScroll /> : <LiteStories />}
+      {variant === 'scroll' ? <LiteScroll /> : <LitePoster />}
       <LiteHUD />
     </div>
   )
