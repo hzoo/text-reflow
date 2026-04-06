@@ -91,7 +91,7 @@ export function useEngineInput(deps: UseEngineInputDeps) {
           if (viewMode$.value === 'full') engine.setSentence(0)
         }
         else if (key === 'e') engine.goToLastSentence()
-        else if (key === 'i' || key === 'm' || key === '?') { e.preventDefault(); deps.openInput() }
+        else if (key === 'i' || key === 'm') { e.preventDefault(); deps.openInput() }
         else if (key === '=' || key === '+') {
           isAutoFont$.value = false
           const next = Math.min(128, fontSize$.value + 2)
