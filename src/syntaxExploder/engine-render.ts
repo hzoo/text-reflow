@@ -320,27 +320,10 @@ export function createRenderer(state: RenderState) {
     const { start, end } = findVisibleRange(words, state, metrics.lineH)
     for (let i = start; i < end; i++) {
       const w = words[i]
-      const s = w.animScale * w.baseScale
-
-      // Base position (unscaled)
-      const baseX = state.animPadX + w.animX
-      const baseY = state.animPadY + state.animPanY + w.animY * metrics.lineH + w.focusDy + w.baselineShift * metrics.lineH
-
-      let x = baseX
-      let y = baseY
-      let width = wordWidth(w)
-      let height = wordHeight(w)
-
-      // For magnified words, compute actual position from center zoom
-      if (s > state.scaleEps) {
-        const { centerX, centerRow } = getSentenceCenter(w.sentenceIndex)
-        const centerXPos = state.animPadX + centerX
-        const centerY = state.animPadY + state.animPanY + centerRow * metrics.lineH + w.focusDy
-        x = centerXPos + (baseX - centerXPos) * s
-        y = centerY + (baseY - centerY) * s
-        width *= s
-        height *= s
-      }
+      const { x, y, s } = computeWordPosition(w)
+      // Text widths are measured at baseScale; image dimensions are unscaled.
+      const width = wordWidth(w) * (w.imageUrl ? s : w.animScale)
+      const height = wordHeight(w) * s
 
       if (x <= px && px <= x + width && y <= py && py <= y + height) return w
     }

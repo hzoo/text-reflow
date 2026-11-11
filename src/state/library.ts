@@ -1,4 +1,4 @@
-import { signal, computed, batch } from '@preact/signals'
+import { signal, computed } from '@preact/signals'
 import { extractMetadata } from '../syntaxExploder/document'
 
 export interface TextEntry {
@@ -10,21 +10,47 @@ export interface TextEntry {
   createdAt: number
 }
 
+type EntryInput = Pick<TextEntry, 'content' | 'isMarkdown' | 'source'>
+
+type ImportRequest =
+  | { kind: 'url'; url: string; controller: AbortController; showLoading: boolean }
+  | { kind: 'file' }
+
 const LIBRARY_KEY = 'reflow-library'
-const ACTIVE_KEY = 'reflow-active'
 const MAX_ENTRIES = 20
 
-function loadLibrary(): TextEntry[] {
+function readStorage(key: string): string | null {
   try {
-    const raw = localStorage.getItem(LIBRARY_KEY)
-    return raw ? JSON.parse(raw) : []
+    return localStorage.getItem(key)
   } catch {
-    return []
+    return null
   }
 }
 
-function saveLibrary(entries: TextEntry[]) {
-  localStorage.setItem(LIBRARY_KEY, JSON.stringify(entries))
+function isTextEntry(value: unknown): value is TextEntry {
+  if (!value || typeof value !== 'object') return false
+  const { id, title, content, isMarkdown, source, createdAt } = value as Partial<TextEntry>
+  if (source !== undefined) {
+    if (typeof source !== 'string') return false
+    try { new URL(source) } catch { return false }
+  }
+  return typeof id === 'string' && typeof title === 'string' && typeof content === 'string'
+    && typeof isMarkdown === 'boolean' && typeof createdAt === 'number'
+}
+
+function loadLibrary(): TextEntry[] | null {
+  try {
+    const raw = readStorage(LIBRARY_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    return Array.isArray(parsed) ? parsed.filter(isTextEntry).slice(0, MAX_ENTRIES) : null
+  } catch {
+    return null
+  }
+}
+
+function updateLibrary(entries: TextEntry[]) {
+  try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(entries)) } catch {}
+  library$.value = entries
 }
 
 function deriveTitle(content: string, source?: string): string {
@@ -39,18 +65,26 @@ function deriveTitle(content: string, source?: string): string {
   return firstLine.slice(0, 40) || 'Untitled'
 }
 
-// Signals
-export const library$ = signal<TextEntry[]>(loadLibrary())
-export const activeId$ = signal<string | null>(localStorage.getItem(ACTIVE_KEY) || null)
-
-export const activeEntry$ = computed<TextEntry | null>(() => {
-  const id = activeId$.value
-  if (!id) return library$.value[0] || null
-  return library$.value.find(e => e.id === id) || library$.value[0] || null
+// The most recently used entry is always first, including in persisted history.
+const savedLibrary = loadLibrary()
+const hasSavedLibrary = savedLibrary !== null
+export const library$ = signal<TextEntry[]>(savedLibrary ?? [])
+export const activeEntry$ = computed(() => library$.value[0] ?? null)
+export const activeId$ = computed(() => activeEntry$.value?.id ?? null)
+const pendingImport$ = signal<ImportRequest | null>(null)
+export const loadingUrl$ = computed(() => {
+  const request = pendingImport$.value
+  return request?.kind === 'url' && request.showLoading ? request.url : null
 })
 
+function replaceImport(request: ImportRequest | null) {
+  const previous = pendingImport$.peek()
+  pendingImport$.value = request
+  if (previous?.kind === 'url') previous.controller.abort()
+}
+
 // Operations
-export function addEntry(opts: { content: string; isMarkdown: boolean; source?: string }): TextEntry {
+function insertEntry(opts: EntryInput): TextEntry {
   const entry: TextEntry = {
     id: crypto.randomUUID(),
     title: deriveTitle(opts.content, opts.source),
@@ -59,44 +93,56 @@ export function addEntry(opts: { content: string; isMarkdown: boolean; source?: 
     source: opts.source,
     createdAt: Date.now(),
   }
-  const next = [entry, ...library$.value].slice(0, MAX_ENTRIES)
-  batch(() => {
-    library$.value = next
-    activeId$.value = entry.id
-  })
-  saveLibrary(next)
-  localStorage.setItem(ACTIVE_KEY, entry.id)
+  updateLibrary([entry, ...library$.value].slice(0, MAX_ENTRIES))
   return entry
+}
+
+export function addEntry(opts: EntryInput): TextEntry {
+  replaceImport(null)
+  return insertEntry(opts)
+}
+
+export function addStarterEntry(content: string): boolean {
+  if (library$.value.length > 0 || pendingImport$.peek()) return false
+  insertEntry({ content, isMarkdown: true })
+  return true
 }
 
 export function setActive(id: string) {
   const entries = library$.value
   const idx = entries.findIndex(e => e.id === id)
   if (idx < 0) return
-  // LRU touch: move to front
-  const next = [entries[idx], ...entries.slice(0, idx), ...entries.slice(idx + 1)]
-  batch(() => {
-    library$.value = next
-    activeId$.value = id
-  })
-  saveLibrary(next)
-  localStorage.setItem(ACTIVE_KEY, id)
+  replaceImport(null)
+  if (idx === 0) return
+  updateLibrary([entries[idx], ...entries.slice(0, idx), ...entries.slice(idx + 1)])
 }
 
 export function deleteEntry(id: string) {
-  const entries = library$.value.filter(e => e.id !== id)
-  const wasActive = activeId$.value === id
-  library$.value = entries
-  saveLibrary(entries)
-  if (wasActive) {
-    const nextId = entries[0]?.id || null
-    activeId$.value = nextId
-    if (nextId) localStorage.setItem(ACTIVE_KEY, nextId)
-    else localStorage.removeItem(ACTIVE_KEY)
+  if (activeId$.peek() === id) replaceImport(null)
+  updateLibrary(library$.value.filter(e => e.id !== id))
+}
+
+async function runImport(request: ImportRequest, read: () => Promise<EntryInput | null>): Promise<TextEntry | null> {
+  replaceImport(request)
+  try {
+    const entry = await read()
+    return entry && pendingImport$.peek() === request ? insertEntry(entry) : null
+  } catch (error) {
+    if (pendingImport$.peek() !== request) return null
+    throw error
+  } finally {
+    if (pendingImport$.peek() === request) pendingImport$.value = null
   }
 }
 
-export async function fetchUrlToEntry(url: string): Promise<TextEntry> {
+export function readFileToEntry(file: File): Promise<TextEntry | null> {
+  return runImport({ kind: 'file' }, async () => {
+    const content = await file.text()
+    return content.trim() ? { content, isMarkdown: file.name.endsWith('.md') } : null
+  })
+}
+
+export async function fetchUrlToEntry(url: string, { showLoading = false } = {}): Promise<TextEntry | null> {
   const normalized = normalizeUrlForJina(url)
   if (!normalized) throw new Error('Invalid URL')
 
@@ -107,29 +153,33 @@ export async function fetchUrlToEntry(url: string): Promise<TextEntry> {
     return existing
   }
 
-  const response = await fetch(`https://r.jina.ai/${normalized}`)
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
-  }
-  const raw = (await response.text()).trim()
-  if (!raw) throw new Error('No content returned.')
-  return addEntry({ content: raw, isMarkdown: true, source: normalized })
+  const request = { kind: 'url', url: normalized, controller: new AbortController(), showLoading } as const
+  return runImport(request, async () => {
+    const response = await fetch(`https://r.jina.ai/${normalized}`, { signal: request.controller.signal })
+    if (request.controller.signal.aborted) return null
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`Load failed: ${response.status} ${response.statusText}. ${errorText}`)
+    }
+    const content = await response.text()
+    if (!content.trim()) throw new Error('No content returned.')
+    return { content, isMarkdown: true, source: normalized }
+  })
 }
 
 export function normalizeUrlForJina(raw: string): string | null {
   let s = raw.trim()
   if (!s) return null
 
-  // Common copy/paste wrappers
-  s = s.replace(/^[<\[(\s]+/, '').replace(/[\])>\s]+$/, '')
+  // Unwrap a standalone URL without stripping punctuation from its path.
+  if ((s.startsWith('<') && s.endsWith('>')) ||
+      (s.startsWith('[') && s.endsWith(']')) ||
+      (s.startsWith('(') && s.endsWith(')'))) {
+    s = s.slice(1, -1).trim()
+  }
+  if (/\s/.test(s)) return null
 
-  // Handle "prefix/https://..." (extract embedded URL)
-  const embedded = s.search(/https?:\/\//i)
-  if (embedded > 0) s = s.slice(embedded)
-
-  // Accept bare domains (no whitespace)
-  if (!/^https?:\/\//i.test(s) && !/\s/.test(s) && /\.[a-z]{2,}(?:\/|$)/i.test(s)) {
+  if (/^[^/?#:@]+\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(s)) {
     s = `https://${s}`
   }
 
@@ -140,22 +190,37 @@ export function normalizeUrlForJina(raw: string): string | null {
     return null
   }
 
-  // Unwrap existing r.jina.ai links
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
   if (u.hostname === 'r.jina.ai') {
-    const after = u.href.replace(/^https?:\/\/r\.jina\.ai\/?/i, '')
-    const again = normalizeUrlForJina(after)
-    return again
+    return normalizeUrlForJina(u.pathname.slice(1) + u.search + u.hash)
   }
 
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
   return u.href
+}
+
+export function getBootUrl({ pathname, search, hash }: Pick<Location, 'pathname' | 'search' | 'hash'>): string | null {
+  const path = pathname.slice(1)
+  if (!path) return null
+
+  const raw = path.match(/(?:^|\/)(https?:\/.*)$/i)?.[1]
+  if (raw) {
+    // Tolerate a slash-collapsed route without decoding the destination path.
+    return normalizeUrlForJina(raw.replace(/^(https?):\/(?!\/)/i, '$1://') + search + hash)
+  }
+
+  const wrapped = path.match(/(?:^|\/)(https?%3a%2f%2f[^/]+)$/i)?.[1]
+  if (wrapped) {
+    try { return normalizeUrlForJina(decodeURIComponent(wrapped)) } catch { return null }
+  }
+
+  return normalizeUrlForJina(path + search + hash)
 }
 
 /** Bootstrap: migrate old reflow-text into library if library is empty */
 export function migrateOldStorage() {
-  if (library$.value.length > 0) return
-  const oldText = localStorage.getItem('reflow-text')
+  if (hasSavedLibrary || library$.value.length > 0) return
+  const oldText = readStorage('reflow-text')
   if (!oldText) return
-  const oldMd = localStorage.getItem('reflow-markdown') === '1'
+  const oldMd = readStorage('reflow-markdown') === '1'
   addEntry({ content: oldText, isMarkdown: oldMd })
 }

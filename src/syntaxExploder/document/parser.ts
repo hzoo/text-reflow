@@ -98,19 +98,56 @@ function isAbbreviation(raw: string): boolean {
 
 // ─── Public: Inline Marker Handling ────────────────────────────────────────
 
+const escapedMarkerCharacter = /\\([\\[\]])/g
+const blockMarker = /^(?:#{1,2}|[-*+]|\d+\.)\s/
+
+export function escapeInlineText(text: string): string {
+  return text.replace(/\\|\[(?=\[)/g, '\\$&')
+}
+
+export function escapeBlockStart(text: string): string {
+  return text.split('\n').map(line => blockMarker.test(line.trimStart()) ? `\\${line.trimStart()}` : line).join('\n')
+}
+
+export function unescapeBlockStart(line: string): string {
+  return line.startsWith('\\') && blockMarker.test(line.slice(1)) ? line.slice(1) : line
+}
+
+function safeMarkdownUrl(value: string | undefined, image = false): string | undefined {
+  if (!value) return undefined
+  try {
+    const protocol = new URL(value, 'https://example.invalid').protocol
+    if (protocol === 'https:' || protocol === 'http:') return value
+    if (image && (protocol === 'blob:' || /^data:image\//i.test(value))) return value
+    if (!image && (protocol === 'mailto:' || protocol === 'tel:')) return value
+  } catch {
+    return undefined
+  }
+}
+
+function newInlineMarkerState() {
+  return {
+    weight: ['normal'] as InlineStyle['fontWeight'][],
+    style: ['normal'] as InlineStyle['fontStyle'][],
+    link: [undefined] as InlineStyle['linkUrl'][],
+    image: [undefined] as InlineStyle['imageUrl'][],
+  }
+}
+
 export function parseInlineMarkers(text: string): InlineSegment[] {
+  return parseInlineLine(text, newInlineMarkerState())
+}
+
+function parseInlineLine(text: string, state: ReturnType<typeof newInlineMarkerState>): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const marker = /\[\[(\/)?(strong|em|link|image)(?::([^\]]+))?\]\]/g
-  const weightStack: Array<'normal' | 'bold'> = ['normal']
-  const styleStack: Array<'normal' | 'italic'> = ['normal']
-  const linkStack: Array<string | undefined> = [undefined]
-  const imageStack: Array<string | undefined> = [undefined]
+  const marker = /\\[\\[\]]|\[\[(\/)?(strong|em|link|image)(?::((?:\\[\\[\]]|[^\]\\])+))?\]\]/g
+  const { weight: weightStack, style: styleStack, link: linkStack, image: imageStack } = state
   let lastIndex = 0
 
   function pushSegment(value: string) {
     if (!value) return
     segments.push({
-      text: value,
+      text: value.replace(escapedMarkerCharacter, '$1'),
       style: {
         fontStyle: styleStack[styleStack.length - 1],
         fontWeight: weightStack[weightStack.length - 1],
@@ -122,17 +159,18 @@ export function parseInlineMarkers(text: string): InlineSegment[] {
 
   let match: RegExpExecArray | null
   while ((match = marker.exec(text)) !== null) {
+    if (!match[2]) continue
     if (match.index > lastIndex) {
       pushSegment(text.slice(lastIndex, match.index))
     }
     const isClose = Boolean(match[1])
     const kind = match[2]
-    const value = match[3]
+    const value = match[3]?.replace(escapedMarkerCharacter, '$1')
     if (!isClose) {
       if (kind === 'strong') weightStack.push('bold')
       else if (kind === 'em') styleStack.push('italic')
-      else if (kind === 'link') linkStack.push(value)
-      else if (kind === 'image') imageStack.push(value)
+      else if (kind === 'link') linkStack.push(safeMarkdownUrl(value))
+      else if (kind === 'image') imageStack.push(safeMarkdownUrl(value, true))
     } else {
       if (kind === 'strong' && weightStack.length > 1) weightStack.pop()
       else if (kind === 'em' && styleStack.length > 1) styleStack.pop()
@@ -146,15 +184,7 @@ export function parseInlineMarkers(text: string): InlineSegment[] {
 }
 
 export function stripInlineMarkers(text: string): string {
-  return text
-    .replace(/\[\[strong\]\]/g, '')
-    .replace(/\[\[\/strong\]\]/g, '')
-    .replace(/\[\[em\]\]/g, '')
-    .replace(/\[\[\/em\]\]/g, '')
-    .replace(/\[\[link:[^\]]+\]\]/g, '')
-    .replace(/\[\[\/link\]\]/g, '')
-    .replace(/\[\[image:[^\]]+\]\]/g, '')
-    .replace(/\[\[\/image\]\]/g, '')
+  return parseInlineMarkers(text).map(segment => segment.text).join('')
 }
 
 // ─── Public: Paragraph Splitting ───────────────────────────────────────────
@@ -365,7 +395,7 @@ export function parseMarkdownText(text: string): DocumentModel {
       baselineShift: 0,
       fontStyle: 'normal',
       fontWeight: 'normal',
-      linkUrl: url,
+      linkUrl: safeMarkdownUrl(url) ?? null,
       imageUrl: url,
       imageAlt: label,
       imageW: 0,
@@ -403,6 +433,8 @@ export function parseMarkdownText(text: string): DocumentModel {
 
   function parseLine(line: string): { style: BlockStyle; content: string; marker?: string } {
     const trimmed = line.trim()
+    const unescaped = unescapeBlockStart(trimmed)
+    if (unescaped !== trimmed) return { style: 'body', content: unescaped }
     if (trimmed.startsWith('# ')) return { style: 'title', content: trimmed.replace(/^#\s+/, '') }
     if (trimmed.startsWith('## ')) return { style: 'heading', content: trimmed.replace(/^##\s+/, '') }
     if (/^[-*+]\s+/.test(trimmed)) return { style: 'bullet', content: trimmed.replace(/^[-*+]\s+/, '') }
@@ -431,6 +463,7 @@ export function parseMarkdownText(text: string): DocumentModel {
 
   const lines = text.split(/\n/)
   let paragraphIndex = 0
+  let inlineState = newInlineMarkerState()
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) {
@@ -440,6 +473,7 @@ export function parseMarkdownText(text: string): DocumentModel {
         prev.breakAfterRows = Math.max(prev.breakAfterRows, 2)
       }
       paragraphIndex++
+      inlineState = newInlineMarkerState()
       continue
     }
     const lineWordStart = words.length
@@ -450,7 +484,7 @@ export function parseMarkdownText(text: string): DocumentModel {
     if (style === 'title') breakRows = 3
     else if (style === 'heading') breakRows = 2
     const lineText = style === 'bullet' ? `${marker || '-'} ${content}` : content
-    const segments = parseInlineMarkers(lineText)
+    const segments = parseInlineLine(lineText, inlineState)
     const blockWeight: InlineStyle['fontWeight'] = (style === 'title' || style === 'heading') ? 'bold' : 'normal'
     let isLineStartWord = true
     for (const segment of segments) {

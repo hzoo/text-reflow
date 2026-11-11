@@ -1,4 +1,4 @@
-import { liteMode$, liteVariant$, liteFitUnit$, controlsOpen$, activeTab$, PREFS_KEY } from '../state/signals'
+import { liteMode$, liteVariant$, liteFitUnit$, controlsOpen$, activeTab$, flushPrefs } from '../state/signals'
 
 export function LiteHUD() {
   const variant = liteVariant$.value
@@ -47,12 +47,7 @@ export function LiteHUD() {
         class="lite-hud-btn"
         onClick={() => {
           liteMode$.value = false
-          try {
-            const raw = localStorage.getItem(PREFS_KEY)
-            const obj = raw ? JSON.parse(raw) : {}
-            obj.liteMode = false
-            localStorage.setItem(PREFS_KEY, JSON.stringify(obj))
-          } catch {}
+          flushPrefs()
           location.reload()
         }}
       >

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { markdownToParagraphs, markdownToReadingText, stripJinaPreamble } from './document'
+import { markdownToParagraphs, markdownToReadingText, parseDocument, parseMarkdownText, stripJinaPreamble } from './document'
 
 const SOURCE = `_File over app_ is a philosophy: if you want to create digital artifacts that last, they must be files you can control, in formats that are easy to retrieve and read. Use tools that give you this freedom.
 
@@ -59,6 +59,83 @@ describe('markdownToReadingText', () => {
     const stripped = stripJinaPreamble(JINA_WRAPPED)
     expect(stripped.startsWith('_File over app_')).toBe(true)
     expect(stripped.includes('Markdown Content:')).toBe(false)
+  })
+
+  test('keeps document text before a Markdown Content line outside a Jina preamble', () => {
+    const source = 'The introduction.\n\nMarkdown Content:\nThe body.'
+    expect(markdownToParagraphs(source)).toEqual(['The introduction.', 'Markdown Content:\nThe body.'])
+  })
+
+  test('keeps fenced code and table cells in the reader', () => {
+    const source = [
+      '```sh\n# build the app\nbun run build\n```',
+      '````html\n<h2>Title</h2>\n<sup>1</sup>\n````',
+      '| Command | Purpose |\n| --- | --- |\n| `bun test` | Run the tests |',
+    ].join('\n\n')
+    const documents = [
+      parseDocument(markdownToParagraphs(source), true),
+      parseMarkdownText(markdownToReadingText(source)),
+    ]
+    for (const doc of documents) {
+      const text = doc.words.map(word => word.text).join(' ')
+      expect(text).toBe('# build the app bun run build <h2>Title</h2> <sup>1</sup> Command | Purpose bun test | Run the tests')
+    }
+  })
+
+  test('keeps fenced code and table cells inside a list item', () => {
+    const source = '- Setup\n\n  ```sh\n  # build the app\n  bun run build\n  ```\n\n  | Command | Purpose |\n  | --- | --- |\n  | test | Verify |'
+    const doc = parseDocument(markdownToParagraphs(source), true)
+    expect(doc.words.map(word => word.text).join(' ')).toBe('- Setup # build the app bun run build Command | Purpose test | Verify')
+  })
+
+  test('preserves literal heading characters inside quoted code', () => {
+    const source = '> ```sh\n> # build\n> # verify\n> ```'
+    const doc = parseDocument(markdownToParagraphs(source), true)
+    expect(doc.words.map(word => word.text).join(' ')).toBe('> # build # verify')
+  })
+
+  test('keeps a link active across a Markdown line break', () => {
+    const url = 'https://example.org/destination'
+    const doc = parseDocument(markdownToParagraphs(`Hello [the\nlink](${url}). More text.`), true)
+    expect(doc.words.filter(word => word.linkUrl === url).map(word => word.text)).toEqual(['the', 'link'])
+    expect(doc.words.find(word => word.text === 'More')?.linkUrl).toBeNull()
+  })
+
+  test('retains a multiline image as one image with its full alt text', () => {
+    const source = '![A small\ndiagram](https://example.org/diagram.png)'
+    const doc = parseDocument(markdownToParagraphs(source), true)
+    expect(doc.words.filter(word => word.imageUrl).map(word => word.imageAlt)).toEqual(['A small diagram'])
+  })
+
+  test('recognizes indented code at the start of a document', () => {
+    const code = '    # Literal heading\n    echo hello'
+    const sources = [code, `Title: Example\nURL Source: https://example.org\n\nMarkdown Content:\n${code}`]
+    for (const source of sources) {
+      const doc = parseDocument(markdownToParagraphs(source), true)
+      expect(doc.words.map(word => word.text).join(' ')).toBe('# Literal heading echo hello')
+    }
+  })
+
+  test('preserves escaped punctuation and literal text that resembles reader markers', () => {
+    const source = 'Use \\*literal\\* and `[[strong]]`, then continue.'
+    const doc = parseDocument(markdownToParagraphs(source), true)
+    expect(doc.words.map(word => word.displayText).join('')).toBe('Use *literal* and [[strong]], then continue.')
+    expect(doc.words.every(word => word.fontWeight === 'normal')).toBe(true)
+  })
+
+  test('keeps labels for unsafe Markdown destinations without making them actionable', () => {
+    const source = [
+      '[Blocked](javascript:void%200)',
+      '![Diagram](javascript:void%200)',
+      '[Allowed](https://example.com/guide)',
+      '[Bracketed](https://example.com/guide])',
+      '[Relative](/help)',
+    ].join('\n\n')
+    const doc = parseDocument(markdownToParagraphs(source), true)
+    expect(doc.words.map(word => word.text)).toContain('Blocked')
+    expect(doc.words.map(word => word.text)).toContain('Diagram')
+    expect(doc.words.every(word => word.imageUrl === null)).toBe(true)
+    expect(doc.words.flatMap(word => word.linkUrl ?? [])).toEqual(['https://example.com/guide', 'https://example.com/guide]', '/help'])
   })
 
   test('no empty sentences in full mode excerpt', () => {

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'preact/hooks'
-import { document$, globalSentence$ } from '../state/signals'
+import { useLayoutEffect, useMemo, useRef } from 'preact/hooks'
+import { activeId$ } from '../state/library'
+import { document$, globalSentence$, liteVariant$, setReadingSentence } from '../state/signals'
 import type { Word } from '../syntaxExploder/document/types'
 
 interface ParagraphData {
@@ -27,69 +28,84 @@ function buildParagraphs(wordsBySentence: Word[][]): ParagraphData[] {
   return result
 }
 
+function sentenceAtReadingLine(
+  spans: NodeListOf<HTMLElement>,
+  active: HTMLElement,
+  line: number,
+): HTMLElement {
+  const current = active.getBoundingClientRect()
+  if (current.top <= line && line <= current.bottom) return active
+
+  // Inline sentence spans are in document order. Their bottoms are nondecreasing.
+  let start = 0
+  let end = spans.length
+  while (start < end) {
+    const mid = Math.floor((start + end) / 2)
+    if (spans[mid].getBoundingClientRect().bottom < line) start = mid + 1
+    else end = mid
+  }
+  if (start === 0) return spans[0]
+  if (start === spans.length) return spans[start - 1]
+
+  const next = spans[start]
+  const previous = spans[start - 1]
+  const gapAfter = next.getBoundingClientRect().top - line
+  const gapBefore = line - previous.getBoundingClientRect().bottom
+  return gapAfter <= gapBefore ? next : previous
+}
+
 export function LiteScroll() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const observerRef = useRef<IntersectionObserver | null>(null)
-  const prevActiveRef = useRef<HTMLElement | null>(null)
 
   const doc = document$.value
+  const entryId = activeId$.value
   const paragraphs = useMemo(() => buildParagraphs(doc.wordsBySentence), [doc])
 
-  useEffect(() => {
-    document.body.style.overflow = 'auto'
-    document.body.style.overscrollBehavior = 'auto'
-    return () => {
-      document.body.style.overflow = 'hidden'
-      document.body.style.overscrollBehavior = 'none'
-    }
-  }, [])
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     const spans = container.querySelectorAll<HTMLElement>('[data-sentence]')
+    if (!spans.length) {
+      container.scrollTop = 0
+      return
+    }
 
-    // Apply initial active state from persisted signal
     const initial = globalSentence$.peek() ?? 0
-    for (const span of spans) {
-      if (Number(span.getAttribute('data-sentence')) === initial) {
-        span.classList.add('active')
-        prevActiveRef.current = span
-        break
-      }
+    let active = container.querySelector<HTMLElement>(`[data-sentence="${initial}"]`) ?? spans[0]
+    const readingLine = () => container.getBoundingClientRect().top + container.clientTop + container.clientHeight / 2
+    const bounds = active.getBoundingClientRect()
+    container.scrollTop += (bounds.top + bounds.bottom) / 2 - readingLine()
+    active.classList.add('active')
+
+    // The browser can deliver a scroll event for restoration after this effect.
+    let previousTop = container.scrollTop
+    const onScroll = () => {
+      const top = container.scrollTop
+      if (top === previousTop) return
+      previousTop = top
+      if (liteVariant$.peek() !== 'scroll' || activeId$.peek() !== entryId || document$.peek() !== doc) return
+
+      const atEnd = top >= container.scrollHeight - container.clientHeight - 1
+      const next = top <= 0
+        ? spans[0]
+        : atEnd
+          ? spans[spans.length - 1]
+          : sentenceAtReadingLine(spans, active, readingLine())
+      if (next === active) return
+
+      active.classList.remove('active')
+      active = next
+      active.classList.add('active')
+      setReadingSentence(Number(active.dataset.sentence))
     }
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        let best: IntersectionObserverEntry | null = null
-        for (const entry of entries) {
-          if (entry.isIntersecting && (!best || entry.intersectionRatio > best.intersectionRatio)) {
-            best = entry
-          }
-        }
-        if (!best) return
-
-        const target = best.target as HTMLElement
-        if (target === prevActiveRef.current) return
-
-        prevActiveRef.current?.classList.remove('active')
-        target.classList.add('active')
-        prevActiveRef.current = target
-
-        const si = Number(target.getAttribute('data-sentence'))
-        if (!isNaN(si)) globalSentence$.value = si
-      },
-      { rootMargin: '-40% 0px -40% 0px' }
-    )
-
-    spans.forEach(el => observerRef.current!.observe(el))
-
+    container.addEventListener('scroll', onScroll, { passive: true })
     return () => {
-      observerRef.current?.disconnect()
-      prevActiveRef.current = null
+      container.removeEventListener('scroll', onScroll)
+      active.classList.remove('active')
     }
-  }, [doc])
+  }, [doc, entryId])
 
   return (
     <div class="lite-scroll" ref={containerRef}>

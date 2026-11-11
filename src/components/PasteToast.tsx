@@ -1,6 +1,6 @@
 import { signal } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
-import { addEntry, fetchUrlToEntry } from '../state/library'
+import { addEntry, fetchUrlToEntry, loadingUrl$ } from '../state/library'
 
 export interface PasteToastData {
   kind: 'url' | 'text'
@@ -9,7 +9,6 @@ export interface PasteToastData {
 }
 
 export const pasteToast$ = signal<PasteToastData | null>(null)
-export const loadingUrl$ = signal<string | null>(null)
 
 export function PasteToast() {
   const data = pasteToast$.value
@@ -17,15 +16,16 @@ export function PasteToast() {
 
   useEffect(() => {
     if (!data) return
-    const timer = setTimeout(() => { pasteToast$.value = null }, 5000)
+    const timer = setTimeout(() => { dismiss(data) }, 5000)
 
     const handleKey = (e: KeyboardEvent) => {
+      if (pasteToast$.peek() !== data) return
       if (e.key === 'Enter') {
         e.preventDefault()
         confirm(data)
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        pasteToast$.value = null
+        dismiss(data)
       }
     }
 
@@ -81,7 +81,7 @@ export function PasteToast() {
         </button>
         <button
           type="button"
-          onClick={() => { pasteToast$.value = null }}
+          onClick={() => dismiss(data)}
           class="h-6 px-2 text-[11px] rounded border border-hud-border
             bg-btn-bg text-muted cursor-pointer hover:bg-btn-hover"
         >
@@ -92,12 +92,16 @@ export function PasteToast() {
   )
 }
 
-function confirm(data: PasteToastData) {
+function dismiss(data: PasteToastData): boolean {
+  if (pasteToast$.peek() !== data) return false
   pasteToast$.value = null
+  return true
+}
+
+function confirm(data: PasteToastData) {
+  if (!dismiss(data)) return
   if (data.kind === 'url') {
-    loadingUrl$.value = data.value
-    fetchUrlToEntry(data.value)
-      .finally(() => { loadingUrl$.value = null })
+    fetchUrlToEntry(data.value, { showLoading: true }).catch(console.error)
   } else {
     addEntry({ content: data.value, isMarkdown: false })
   }

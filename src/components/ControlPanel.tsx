@@ -6,11 +6,14 @@ import {
   beat$,
   focusStyle$,
   viewMode$,
+  setViewMode,
   fontSize$,
   maxWidth$,
   motionPreset$,
   fullPush$,
-  isAutoFont$,
+  fontSizing$,
+  setManualFontSize,
+  toggleAutoFont,
   debug$,
   READER_FONT,
   isMobile,
@@ -34,11 +37,14 @@ export function ControlPanel() {
   const showFooter = !mobile
 
   const handleLoadUrl = async () => {
-    const url = urlRef.current?.value.trim()
+    const input = urlRef.current
+    if (!input) return
+    const url = input.value.trim()
     if (!url) return
     try {
-      await fetchUrlToEntry(url)
-      urlRef.current!.value = ''
+      const entry = await fetchUrlToEntry(url)
+      if (!entry || urlRef.current !== input || input.value.trim() !== url) return
+      input.value = ''
       controlsOpen$.value = false
     } catch (err) {
       console.error(err)
@@ -72,6 +78,7 @@ export function ControlPanel() {
         onClick={() => { controlsOpen$.value = false }}
       />
       <div
+        data-native-scroll="true"
         class={`
           fixed z-50 flex flex-col
           bg-hud-bg border border-hud-border shadow-hud
@@ -163,7 +170,7 @@ function StyleTab() {
         <div class="flex flex-col gap-2">
           <Label kbd="V">View</Label>
           <div class="bg-btn-bg/80 p-1.5 rounded-xl flex justify-center border border-hud-border/10 shadow-inset">
-            <ViewPicker value={viewMode$.value} onChange={(v) => { viewMode$.value = v }} />
+            <ViewPicker value={viewMode$.value} onChange={setViewMode} />
           </div>
         </div>
       </section>
@@ -177,7 +184,7 @@ function StyleTab() {
 
       <section class="grid grid-cols-[1fr_1fr_auto] gap-4 items-end">
         <ScrubberGroup label="Size" kbd="-/=" centered>
-          <Scrubber min={10} max={128} step={1} value={fontSize$.value} defaultValue={18} onChange={(v) => { fontSize$.value = v }} />
+          <Scrubber min={10} max={128} step={1} value={fontSize$.value} defaultValue={18} onChange={setManualFontSize} />
         </ScrubberGroup>
         <ScrubberGroup label="Width" centered>
           <Scrubber min={200} max={4000} step={50} value={maxWidth$.value} defaultValue={720} onChange={(v) => { maxWidth$.value = v }} />
@@ -185,15 +192,15 @@ function StyleTab() {
         <div class="flex flex-col gap-2 items-center">
           <span class="text-[11px] font-bold text-muted/80 text-center italic" style={{ fontFamily: READER_FONT }}>Auto</span>
           <button
-            onClick={() => { isAutoFont$.value = !isAutoFont$.value }}
+            onClick={toggleAutoFont}
             class={`w-10 h-8 rounded-full border-2 transition-all flex items-center justify-center ${
-              isAutoFont$.value
+              fontSizing$.value.kind === 'auto'
                 ? 'bg-accent border-accent text-bg shadow-md'
                 : 'bg-btn-bg border-hud-border text-muted hover:border-accent/30 shadow-inset'
             }`}
             title="Auto Fit Font"
           >
-            <div class={`w-2.5 h-2.5 rounded-full transition-all ${isAutoFont$.value ? 'bg-bg' : 'bg-muted/30'}`} />
+            <div class={`w-2.5 h-2.5 rounded-full transition-all ${fontSizing$.value.kind === 'auto' ? 'bg-bg' : 'bg-muted/30'}`} />
           </button>
         </div>
       </section>

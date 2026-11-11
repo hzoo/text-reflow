@@ -15,14 +15,17 @@ type EngineOpts = {
   words: DocumentModel
   fontFamily?: string
   maxContentWidth?: number
+  fontSizing?: FontSizing
 }
+
+export type FontSizing = { kind: 'manual'; size: number } | { kind: 'auto' }
 
 type EngineStateUpdate = {
   model?: DocumentModel
   scope?: LayoutScope
   fontFamily?: string
   maxContentWidth?: number
-  fontSize?: number
+  fontSizing?: FontSizing
   beat?: BeatId
   bottomReserve?: number
   debug?: boolean
@@ -32,7 +35,17 @@ type LayoutScope =
   | { mode: 'full'; paragraphBreakRows: number }
   | { mode: 'paragraph'; paragraphIndex: number; sentenceOffset: number; sentenceCount: number }
 
-export function createEngine({ canvas, words: initialModel, fontFamily: fontOverride, maxContentWidth: maxWidthOverride }: EngineOpts) {
+function clampFontSize(size: number): number {
+  return Number.isFinite(size) ? Math.max(10, Math.min(128, size)) : 18
+}
+
+function sameScope(a: LayoutScope, b: LayoutScope): boolean {
+  if (a.mode === 'full') return b.mode === 'full' && a.paragraphBreakRows === b.paragraphBreakRows
+  return b.mode === 'paragraph' && a.paragraphIndex === b.paragraphIndex
+    && a.sentenceOffset === b.sentenceOffset && a.sentenceCount === b.sentenceCount
+}
+
+export function createEngine({ canvas, words: initialModel, fontFamily: fontOverride, maxContentWidth: maxWidthOverride, fontSizing }: EngineOpts) {
   const context = canvas.getContext('2d')
   if (!context) throw new Error('2D context not available')
   const ctx = context
@@ -85,7 +98,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let lastLayoutNotify = 0
   const LAYOUT_NOTIFY_THROTTLE = 200 // ms
   let maxContentWidth = maxWidthOverride ?? 720
-  let fontSize = 18
+  let fontSize = fontSizing?.kind === 'manual' ? clampFontSize(fontSizing.size) : 18
+  let autoFont = fontSizing?.kind === 'auto'
   let bottomReserve = 0 // Space to reserve at bottom (for HUD on mobile)
   let sentenceOnlyMode = false // When true, only show current sentence (for mobile overflow)
   // Controls both vertical block alignment and sentence-following behavior
@@ -154,13 +168,12 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   let backgroundTaskVersion = 0
   let backgroundWarmTimer: ReturnType<typeof setTimeout> | null = null
   let widthWarmComplete = false
-  let widthWarmDidAdd = false
+  let layoutUsesEstimatedWidths = false
   let warnedNonFiniteWidth = false
   let warnedNonFiniteLineH = false
 
   function resetWidthWarm() {
     widthWarmComplete = false
-    widthWarmDidAdd = false
     warnedNonFiniteWidth = false
     warnedNonFiniteLineH = false
     backgroundTaskVersion++
@@ -206,7 +219,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     requestAnimationFrame(() => {
       imageRelayoutPending = false
       if (destroyed) return
-      layoutCurrentBeat(true, true)
+      layoutForSettings(true)
+      notifyStateChange()
     })
   }
 
@@ -226,6 +240,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       entry.status = 'loaded'
       entry.naturalWidth = img.naturalWidth || 0
       entry.naturalHeight = img.naturalHeight || 0
+      if (imageCache.get(url) !== entry) return
+      metricsDirty = true
       scheduleImageRelayout()
     }
     img.onerror = () => {
@@ -317,7 +333,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Layout width is in pixels (maxCols == maxWidthPx)
     const effective = Number.isFinite(effectiveMaxWidth) ? effectiveMaxWidth : 720
-    metrics.maxCols = Math.max(200, Math.floor(effective))
+    const nextMaxCols = Math.max(200, Math.floor(effective))
+    if (nextMaxCols !== metrics.maxCols) metricsDirty = true
+    metrics.maxCols = nextMaxCols
 
     // Center block horizontally
     metrics.padX = Math.max(minPad, Math.floor((window.innerWidth - metrics.maxCols) / 2))
@@ -442,7 +460,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         
         if (!Number.isFinite(pixelWidth) || pixelWidth <= 0) continue
         wordWidthCache.set(cacheKey, pixelWidth)
-        widthWarmDidAdd = true
         if (wordWidthCache.size > WORD_WIDTH_CACHE_MAX) {
           const oldest = wordWidthCache.keys().next().value
           if (oldest !== undefined) wordWidthCache.delete(oldest)
@@ -456,9 +473,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         backgroundWarmTimer = null
         if (!destroyed && currentVersion === backgroundTaskVersion) {
           widthWarmComplete = true
-          // Trigger one-time anchored layout to lock in warmed widths
-          if (widthWarmDidAdd) {
-            // Force updateWordCols to apply cached widths everywhere.
+          // A layout can use estimates even when the needed widths were already cached.
+          if (layoutUsesEstimatedWidths) {
             metricsDirty = true
             layoutCurrentBeat(true, true)
           }
@@ -567,6 +583,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     lastMaxWidth = maxContentWidth
     lastModel = model
     metricsDirty = false
+    layoutUsesEstimatedWidths = false
 
     const t0 = performance.now()
     const words = visibleWords
@@ -630,6 +647,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         
         // If outside hot zone, approximate immediately (skip cache lookup/string creation)
         if (!allowCacheEverywhere && (i < hotWordStart || i >= hotWordEnd)) {
+           layoutUsesEstimatedWidths = true
            // Approximation: Avg char width * length
            // We use metrics.charW (measured from 'a-z')
            const len = w.displayText.length
@@ -782,11 +800,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     // update so layout doesn't fall back to 1px widths and overlap text.
     metricsDirty = true
 
-    if (sentenceCountInScope <= 0) {
-      hoveredSentence = null
-    } else if (hoveredSentence != null) {
-      hoveredSentence = Math.max(0, Math.min(sentenceCountInScope - 1, hoveredSentence))
-    }
+    hoveredSentence = clampIndex(hoveredSentence, sentenceCountInScope)
 
     addPerfSample('applyScopeMs', performance.now() - t0)
   }
@@ -890,15 +904,21 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   /** Check if content fits in available space */
   function contentFits(words: Word[]): boolean {
     const availableHeight = window.innerHeight - bottomReserve - 32
-    const availableWidth = window.innerWidth - 32
+    const availableWidth = Math.min(metrics.maxCols, window.innerWidth - 32)
     const { maxRow, maxX } = getContentBounds(words)
     const contentHeight = (maxRow + 1) * metrics.lineH + 32
     return contentHeight <= availableHeight && maxX <= availableWidth
   }
 
-  /** Auto-fit font size for visible words (no sentence-only fallback). Returns true if content fits. */
-  function autoFitFontSize(): boolean {
+  function layoutForSettings(useAnchor: boolean) {
+    if (!autoFont || visibleWords.length === 0) {
+      layoutCurrentBeat(true, useAnchor)
+      return
+    }
+
     sentenceOnlyMode = false
+    const anchor = useAnchor ? captureLayoutAnchor() : null
+    const previousSize = fontSize
 
     // Binary search for optimal font size for full paragraph
     let minSize = AUTO_FIT_MIN_PX
@@ -918,12 +938,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
     }
 
-    // Apply best size with anchor
     fontSize = bestSize
-    layoutCurrentBeat(true, true)
-
-    notifyStateChange()
-    return contentFits(visibleWords)
+    if (bestSize !== previousSize) resetWidthWarm()
+    layoutCurrentBeat(true, useAnchor, anchor)
   }
 
   /** Fit just the current sentence to screen */
@@ -957,36 +974,29 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     layoutCurrentBeat(true, true)
   }
 
-  function layoutCurrentBeat(invalidateLayout = true, useAnchor = false) {
-    const t0 = performance.now()
-
-    // Capture old metrics before layout for word animation rebasing
-    const oldLineH = metrics.lineH
-    const oldAnimPanY = animPanY
-    const oldAnimPadY = animPadY
-
-    // BEFORE: Capture anchor position if requested
+  function captureLayoutAnchor() {
+    const sentence = hoveredSentenceGlobal()
+    let anchorSentence = sentence
     let anchorScreenY: number | null = null
-    let anchorSentence: number | null = null
-
-    if (useAnchor) {
-      const globalSentence = hoveredSentenceGlobal()
-      if (globalSentence != null) {
-        anchorSentence = globalSentence
-        const { minRow, maxRow } = getSentenceRowBounds(globalSentence)
-        if (minRow !== Infinity) {
-          const centerRow = (minRow + maxRow + 1) / 2
-          anchorScreenY = metrics.padY + centerRow * metrics.lineH + panY
-        }
-      } else {
-        // No sentence selected: anchor to word nearest viewport center
-        const centerWord = findWordNearestViewportCenter()
-        if (centerWord != null) {
-          anchorScreenY = metrics.padY + centerWord.targetY * metrics.lineH + panY
-          anchorSentence = centerWord.sentenceIndex
-        }
+    if (sentence !== null) {
+      const { minRow, maxRow } = getSentenceRowBounds(sentence)
+      if (minRow !== Infinity) {
+        anchorScreenY = metrics.padY + (minRow + maxRow + 1) / 2 * metrics.lineH + panY
+      }
+    } else {
+      const centerWord = findWordNearestViewportCenter()
+      if (centerWord !== null) {
+        anchorSentence = centerWord.sentenceIndex
+        anchorScreenY = metrics.padY + centerWord.targetY * metrics.lineH + panY
       }
     }
+    return { anchorSentence, anchorScreenY, oldLineH: metrics.lineH, oldAnimPanY: animPanY, oldAnimPadY: animPadY }
+  }
+
+  function layoutCurrentBeat(invalidateLayout = true, useAnchor = false, anchor = useAnchor ? captureLayoutAnchor() : null) {
+    const t0 = performance.now()
+    const { anchorScreenY, anchorSentence, oldLineH, oldAnimPanY, oldAnimPadY } = anchor ??
+      { anchorScreenY: null, anchorSentence: null, oldLineH: metrics.lineH, oldAnimPanY: animPanY, oldAnimPadY: animPadY }
 
     measureFont()
     
@@ -1006,7 +1016,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     preWarmWidthCache(startSent, endSent) 
     
     // Background warming: run once per font/model until complete
-    if (!widthWarmComplete && !backgroundWarmTimer) {
+    if (invalidateLayout && !widthWarmComplete && !backgroundWarmTimer) {
       backgroundTaskVersion++
       scheduleBackgroundWarming(backgroundTaskVersion, 0)
     }
@@ -1030,7 +1040,6 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
         const newCenterRow = (minRow + maxRow + 1) / 2
         const newScreenY = metrics.padY + newCenterRow * metrics.lineH + panY
         panY -= (newScreenY - anchorScreenY)
-        if (!lineHChanged) animPanY = panY
       } else {
         updatePanForSentence()
       }
@@ -1052,12 +1061,11 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
       const REFLOW_ANIM_ROW_RADIUS = 14
 
-      if (lineHChanged) {
-        // Lock camera immediately; animate surrounding lines around it.
-        animPadY = metrics.padY
-        animPadX = metrics.padX
-        animPanY = panY
-      }
+      // C rebases words against the new camera. Commit both vertical offsets
+      // now so a separate padding animation can't move the anchor again.
+      animPadY = metrics.padY
+      animPanY = panY
+      if (lineHChanged) animPadX = metrics.padX
 
       for (let i = 0, len = visibleWords.length; i < len; i++) {
         const w = visibleWords[i]
@@ -1106,7 +1114,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Throttle layout notifications for debug panel
     const now = performance.now()
-    if (now - lastLayoutNotify > LAYOUT_NOTIFY_THROTTLE) {
+    if (invalidateLayout && now - lastLayoutNotify > LAYOUT_NOTIFY_THROTTLE) {
       lastLayoutNotify = now
       onLayout?.()
     }
@@ -1196,15 +1204,22 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       }
     }
 
-    if (update.fontSize !== undefined) {
-      const raw = update.fontSize
-      const next = Number.isFinite(raw) ? Math.max(10, Math.min(128, raw)) : fontSize
-      if (next !== fontSize) {
-        fontSize = next
-        wordWidthCache.clear()
-        resetWidthWarm()
+    if (update.fontSizing) {
+      const fitting = update.fontSizing.kind === 'auto'
+      if (fitting && !autoFont) {
         needsLayout = true
         shouldAnchor = true
+      }
+      autoFont = fitting
+      if (update.fontSizing.kind === 'manual') {
+        const next = clampFontSize(update.fontSizing.size)
+        if (next !== fontSize) {
+          fontSize = next
+          wordWidthCache.clear()
+          resetWidthWarm()
+          needsLayout = true
+          shouldAnchor = true
+        }
       }
     }
 
@@ -1225,7 +1240,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
       invalidate()
     }
 
-    if (update.scope) {
+    if (update.scope && (modelChanged || !sameScope(scope, update.scope))) {
       prevAnimStart = prevAnimEnd = prevFocusStart = prevFocusEnd = 0
       applyScope(update.scope)
       needsLayout = true
@@ -1242,7 +1257,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
     // Use explicit opt if provided, otherwise auto-detect
     const useAnchor = opts.useAnchor ?? shouldAnchor
-    layoutCurrentBeat(true, useAnchor)
+    if (running) layoutForSettings(useAnchor)
+    else layoutCurrentBeat(true, useAnchor)
     // New model: always snap. Scope changes: snap words but preserve camera animation.
     if (modelChanged || opts.snap) snapToTargets()
     else if (scopeChanged) snapWordsToTargets()
@@ -1430,8 +1446,8 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   const onResize = () => {
     applyDPR()
-    measureFont()
-    layoutCurrentBeat(true, true)
+    layoutForSettings(true)
+    notifyStateChange()
   }
 
   canvas.addEventListener('click', onClick)
@@ -1539,7 +1555,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     }
 
     // init anim state to targets
-    layoutCurrentBeat()
+    layoutForSettings(false)
     animPadY = metrics.padY
     animPadX = metrics.padX
     animPanY = panY
@@ -1557,9 +1573,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setBeat(next: BeatId) {
-    beat = next
-    layoutCurrentBeat(true, true)
-    notifyStateChange()
+    commit({ beat: next })
   }
 
   function setFocusStyle(next: FocusStyleId) {
@@ -1578,9 +1592,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   /** Returns 'wrap' if at end and should go to next paragraph */
   function nextSentence(): 'ok' | 'wrap' {
-    const { index, result } = computeNextIndex(hoveredSentence, sentenceCountInScope)
-    if (result === 'wrap') return 'wrap'
-    hoveredSentence = index
+    const step = computeNextIndex(hoveredSentence, sentenceCountInScope)
+    if (step.result === 'wrap') return 'wrap'
+    hoveredSentence = step.index
     if (hoveredSentence > 0) updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
@@ -1590,9 +1604,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
 
   /** Returns 'wrap' if at start and should go to prev paragraph */
   function prevSentence(): 'ok' | 'wrap' {
-    const { index, result } = computePrevIndex(hoveredSentence, sentenceCountInScope)
-    if (result === 'wrap') return 'wrap'
-    hoveredSentence = index
+    const step = computePrevIndex(hoveredSentence, sentenceCountInScope)
+    if (step.result === 'wrap') return 'wrap'
+    hoveredSentence = step.index
     if (hoveredSentence < sentenceCountInScope - 1) updatePanForSentence()
     if (sentenceOnlyMode) fitCurrentSentence()
     notifyStateChange()
@@ -1601,11 +1615,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function goToLastSentence() {
-    hoveredSentence = computeLastIndex(sentenceCountInScope)
-    updatePanForSentence()
-    if (sentenceOnlyMode) fitCurrentSentence()
-    notifyStateChange()
-    invalidate()
+    setSentence(computeLastIndex(sentenceCountInScope))
   }
 
   function setSentence(index: number | null, opts: { snap?: boolean } = {}) {
@@ -1628,9 +1638,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setMaxWidth(w: number) {
-    maxContentWidth = Number.isFinite(w) ? Math.max(200, Math.min(4000, w)) : 720
-    measureFont()
-    layoutCurrentBeat(true, true)
+    commit({ maxContentWidth: w })
   }
 
   function getMaxWidth() {
@@ -1638,10 +1646,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setFontSize(size: number) {
-    fontSize = Number.isFinite(size) ? Math.max(10, Math.min(128, size)) : 18
-    wordWidthCache.clear()
-    resetWidthWarm()
-    layoutCurrentBeat(true, true)
+    commit({ fontSizing: { kind: 'manual', size } })
   }
 
   function setFontFamily(next?: string) {
@@ -1657,9 +1662,7 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
   }
 
   function setBottomReserve(h: number) {
-    bottomReserve = h
-    measureFont()
-    layoutCurrentBeat(true, true)
+    commit({ bottomReserve: h })
   }
 
   function destroy() {
@@ -1696,8 +1699,9 @@ export function createEngine({ canvas, words: initialModel, fontFamily: fontOver
     getPanSpeed: () => panSpeed,
     getFocusSpeed: () => focusSpeed,
     setBottomReserve,
-    autoFitFontSize,
     isSentenceOnlyMode: () => sentenceOnlyMode,
+    getModel: () => model,
+    getGlobalSentence: hoveredSentenceGlobal,
     setSentence,
     setFullFocusPush: (next: boolean) => { fullFocusPush = next },
     setSentenceFollowMode: (mode: 'center' | 'reveal') => { sentenceFollowMode = mode },

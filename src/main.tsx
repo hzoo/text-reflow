@@ -3,57 +3,43 @@ import { render } from 'preact'
 import { batch } from '@preact/signals'
 import { App, applyEngineScope, MONO_FONT } from './App'
 import { Agentation } from 'agentation'
-import { fetchUrlToEntry, normalizeUrlForJina } from './state/library'
-import { loadingUrl$ } from './components/PasteToast'
+import { fetchUrlToEntry, getBootUrl } from './state/library'
 import { createEngine } from './syntaxExploder/engine'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
 import {
-  currentPara$,
   viewMode$,
   markdownMode$,
   maxWidth$,
-  isAutoFont$,
+  fontSizing$,
+  fittedFontSize$,
   beat$,
   focusStyle$,
   sentence$,
   sentenceCount$,
   sentenceOnlyMode$,
   layoutVersion$,
-  fontSize$,
   moveSpeed$,
   panSpeed$,
   focusSpeed$,
   fullPush$,
   document$,
   globalSentence$,
+  setReadingSentence,
   firstWordY$,
   sentenceCounts$,
   mapSentenceToParagraph,
-  prefs,
+  flushPrefs,
   isMobile,
   liteMode$,
   READER_FONT,
 } from './state/signals'
 import { LiteApp } from './lite/LiteApp'
 
-// URL ingest: /https://example.com/... form
-function getBootUrl(): string | null {
-  const rawPath = location.pathname || ''
-  if (rawPath.length > 1) {
-    let candidate = rawPath.slice(1)
-    try { candidate = decodeURIComponent(candidate) } catch {}
-    // Tolerate slash-collapsed URLs: https:/example.com -> https://example.com
-    candidate = candidate.replace(/^(https?):\/(?!\/)/i, '$1://')
-    return normalizeUrlForJina(candidate)
-  }
-  return null
-}
+window.addEventListener('pagehide', flushPrefs)
 
-const bootUrl = getBootUrl()
+const bootUrl = getBootUrl(location)
 if (bootUrl) {
-  loadingUrl$.value = bootUrl
-  fetchUrlToEntry(bootUrl)
-    .finally(() => { loadingUrl$.value = null })
+  fetchUrlToEntry(bootUrl, { showLoading: true }).catch(console.error)
   // Keep the URL in the address bar for shareability
 }
 
@@ -62,14 +48,6 @@ const isLite = isMobile() && liteMode$.value
 
 if (isLite) {
   // --- Lite mode: DOM-only, no canvas/engine ---
-  // Restore sentence position from prefs
-  const totalSentences = document$.value.sentenceCount
-  if (prefs.sentence > 0 && totalSentences > 0) {
-    globalSentence$.value = Math.min(prefs.sentence, totalSentences - 1)
-  } else {
-    globalSentence$.value = 0
-  }
-
   const uiContainer = document.createElement('div')
   uiContainer.id = 'ui'
   root.appendChild(uiContainer)
@@ -90,13 +68,13 @@ if (isLite) {
   // Capture persisted values before engine init can overwrite signals
   const initBeat = beat$.value
   const initFocusStyle = focusStyle$.value
-  const initFontSize = fontSize$.value
 
   const engine = createEngine({
     canvas,
     words: document$.value,
     fontFamily: markdownMode$.value ? READER_FONT : MONO_FONT,
     maxContentWidth: maxWidth$.value,
+    fontSizing: fontSizing$.value,
   })
 
   engine.onLayout = () => {
@@ -107,26 +85,14 @@ if (isLite) {
     firstWordY$.value = y
   }
 
-  // Compute initial sentence from saved prefs
-  const totalSentences = document$.value.sentenceCount
-  let initSentence: number | undefined
-  if (prefs.sentence > 0 && totalSentences > 0) {
-    const target = Math.min(prefs.sentence, totalSentences - 1)
-    if (isMobile() || viewMode$.value === 'paragraph') {
-      const counts = sentenceCounts$.value
-      const { paragraphIndex, localSentence } = mapSentenceToParagraph(target, counts)
-      currentPara$.value = paragraphIndex
-      viewMode$.value = 'paragraph'
-      initSentence = localSentence
-    } else {
-      initSentence = target
-    }
-  }
-
   // Apply initial scope (after viewMode/para are set)
   if (isMobile()) {
     viewMode$.value = 'paragraph'
   }
+  const initialSentence = globalSentence$.value
+  const localSentence = initialSentence !== null && viewMode$.value === 'paragraph'
+    ? mapSentenceToParagraph(initialSentence, sentenceCounts$.value).localSentence
+    : initialSentence
   applyEngineScope(engine)
 
   // Connect state change callback before start()
@@ -137,27 +103,24 @@ if (isLite) {
       sentence$.value = s
       sentenceCount$.value = total
       sentenceOnlyMode$.value = sOnly
+      fittedFontSize$.value = engine.getFontSize()
+      if (engine.getModel() === document$.peek()) setReadingSentence(engine.getGlobalSentence())
     })
   }
 
   if (isMobile()) {
-    isAutoFont$.value = true
     engine.setSentenceFollowMode('reveal')
     engine.setBeat(initBeat)
     engine.setFocusStyle(initFocusStyle)
-    engine.start(initSentence)
-    engine.autoFitFontSize()
-    fontSize$.value = engine.getFontSize()
   } else {
-    engine.setFontSize(initFontSize)
     engine.setBeat(initBeat)
     engine.setFocusStyle(initFocusStyle)
     engine.setMoveSpeed(moveSpeed$.value)
     engine.setPanSpeed(panSpeed$.value)
     engine.setFocusSpeed(focusSpeed$.value)
     engine.setFullFocusPush(fullPush$.value)
-    engine.start(initSentence)
   }
+  engine.start(localSentence ?? undefined)
 
   // --- Preact render ---
   const uiContainer = document.createElement('div')

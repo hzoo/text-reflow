@@ -1,4 +1,5 @@
-import { marked } from 'marked'
+import { marked, type Token, type Tokens } from 'marked'
+import { escapeBlockStart, escapeInlineText, unescapeBlockStart } from './parser'
 
 // ─── Public: Jina Preamble ─────────────────────────────────────────────────
 
@@ -50,15 +51,22 @@ export function stripJinaPreamble(raw: string): string {
   const normalized = raw.replace(/\r\n/g, '\n')
   const lines = normalized.split('\n')
   const markerIndex = lines.findIndex((line) => line.trim() === 'Markdown Content:')
-  if (markerIndex >= 0) return lines.slice(markerIndex + 1).join('\n').trim()
-  return normalized.trim()
+  if (markerIndex > 0) {
+    const preamble = lines.slice(0, markerIndex).map(line => line.trim()).filter(Boolean)
+    if (/^Title:/i.test(preamble[0] ?? '') &&
+        preamble.some(line => /^URL Source:\s*https?:\/\//i.test(line)) &&
+        preamble.every(line => /^[a-z][\w -]*:/i.test(line))) {
+      return lines.slice(markerIndex + 1).join('\n')
+    }
+  }
+  return normalized
 }
 
 // ─── Public: Markdown to Text ──────────────────────────────────────────────
 
 export function markdownToReadingText(raw: string): string {
   if (!raw) return ''
-  const source = normalizeEmphasisAdjacency(normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw))))
+  const source = normalizeMarkdownSource(stripJinaPreamble(raw))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const lines: string[] = []
   for (const token of tokens) {
@@ -71,7 +79,7 @@ export function markdownToReadingText(raw: string): string {
 
 export function markdownToParagraphs(raw: string): string[] {
   if (!raw) return []
-  const source = normalizeEmphasisAdjacency(normalizeHtmlHeadings(normalizeHtmlSuperscripts(stripJinaPreamble(raw))))
+  const source = normalizeMarkdownSource(stripJinaPreamble(raw))
   const tokens = marked.lexer(source, { gfm: true, breaks: false })
   const paragraphs: string[] = []
   let buffer: string[] = []
@@ -93,7 +101,7 @@ export function markdownToParagraphs(raw: string): string[] {
     }
     if (token.type === 'paragraph') {
       const text = inlineTokensToText(token.tokens)
-      if (text) buffer.push(text)
+      if (text) buffer.push(escapeBlockStart(text))
       flushBuffer()
       continue
     }
@@ -117,9 +125,7 @@ export function markdownToParagraphs(raw: string): string[] {
     }
     if (token.type === 'blockquote') {
       flushBuffer()
-      const lines: string[] = []
-      for (const inner of token.tokens || []) appendBlockLines(inner, lines)
-      const quote = lines.filter((l) => l.trim()).map((line) => `> ${line}`).join('\n')
+      const quote = blockquoteLines(token as Tokens.Blockquote).join('\n')
       if (quote) paragraphs.push(quote)
       continue
     }
@@ -127,13 +133,18 @@ export function markdownToParagraphs(raw: string): string[] {
       flushBuffer()
       const blocks = htmlToBlocks(token.text || token.raw || '')
       for (const line of blocks) {
-        if (line) paragraphs.push(line)
+        if (line) paragraphs.push(escapeInlineText(line))
       }
       continue
     }
     if (token.type === 'hr') {
       flushBuffer()
       continue
+    }
+    const blocks = codeOrTableParagraphs(token)
+    if (blocks.length > 0) {
+      flushBuffer()
+      for (const block of blocks) paragraphs.push(escapeBlockStart(block))
     }
   }
 
@@ -143,7 +154,25 @@ export function markdownToParagraphs(raw: string): string[] {
 
 // ─── Internal Helpers ──────────────────────────────────────────────────────
 
-function appendBlockLines(token: any, out: string[]) {
+function codeOrTableParagraphs(token: Token): string[] {
+  if (token.type === 'code') {
+    const text = (token as Tokens.Code).text.trim()
+    return text ? [escapeInlineText(text)] : []
+  }
+  if (token.type === 'table') {
+    const { header, rows } = token as Tokens.Table
+    return [header, ...rows].map(row => row.map(cell => inlineTokensToText(cell.tokens)).join(' | '))
+  }
+  return []
+}
+
+function blockquoteLines(token: Tokens.Blockquote): string[] {
+  const lines: string[] = []
+  for (const inner of token.tokens) appendBlockLines(inner, lines)
+  return lines.filter(line => line.trim()).map(line => `> ${unescapeBlockStart(line)}`)
+}
+
+function appendBlockLines(token: Token, out: string[]) {
   switch (token.type) {
     case 'heading': {
       const text = inlineTokensToText(token.tokens)
@@ -154,7 +183,7 @@ function appendBlockLines(token: any, out: string[]) {
     }
     case 'paragraph': {
       const text = inlineTokensToText(token.tokens)
-      if (text) out.push(text)
+      if (text) out.push(escapeBlockStart(text))
       out.push('')
       return
     }
@@ -177,23 +206,25 @@ function appendBlockLines(token: any, out: string[]) {
       return
     }
     case 'blockquote': {
-      const lines: string[] = []
-      for (const inner of token.tokens || []) appendBlockLines(inner, lines)
-      for (const line of lines.filter((l) => l.trim())) out.push(`> ${line}`)
+      for (const line of blockquoteLines(token as Tokens.Blockquote)) out.push(line)
       out.push('')
       return
     }
     case 'html': {
       const blocks = htmlToBlocks(token.text || token.raw || '')
-      for (const line of blocks) out.push(line)
+      for (const line of blocks) out.push(escapeInlineText(line))
       if (blocks.length > 0) out.push('')
       return
     }
     case 'hr': {
       return
     }
-    default:
+    default: {
+      const blocks = codeOrTableParagraphs(token)
+      for (const block of blocks) out.push(escapeBlockStart(block))
+      if (blocks.length > 0) out.push('')
       return
+    }
   }
 }
 
@@ -207,20 +238,30 @@ function blockTokensToInlineText(tokens: any[]): string {
         const inner = blockTokensToInlineText(item.tokens || [])
         if (inner) parts.push(inner)
       }
+    } else if (token.type === 'code' || token.type === 'table') {
+      for (const block of codeOrTableParagraphs(token)) parts.push(block.replaceAll('\n', ' '))
     }
   }
   return collapseSpaces(parts.join(' '))
 }
 
 function inlineTokensToText(tokens: any): string {
-  if (typeof tokens === 'string') return collapseInlineSpaces(tokens)
+  if (typeof tokens === 'string') return escapeInlineText(collapseInlineSpaces(tokens))
   if (!Array.isArray(tokens)) return ''
   const parts: string[] = []
+  let text = ''
+  function flushText() {
+    if (!text) return
+    parts.push(escapeInlineText(collapseInlineSpaces(text)))
+    text = ''
+  }
   for (const token of tokens) {
+    if (token.type === 'text' || token.type === 'escape' || token.type === 'codespan') {
+      text += token.text || ''
+      continue
+    }
+    flushText()
     switch (token.type) {
-      case 'text':
-        parts.push(collapseInlineSpaces(token.text || ''))
-        break
       case 'strong': {
         const inner = inlineTokensToText(token.tokens || token.text || [])
         parts.push(`[[strong]]${inner}[[/strong]]`)
@@ -234,19 +275,15 @@ function inlineTokensToText(tokens: any): string {
       case 'del':
         parts.push(inlineTokensToText(token.tokens || token.text || []))
         break
-      case 'codespan':
-        parts.push(collapseInlineSpaces(token.text || ''))
-        break
       case 'link': {
-        const label = inlineTokensToText(token.tokens || token.text || []) || token.text || ''
-        const text = label || token.href || ''
-        if (token.href) parts.push(`[[link:${token.href}]]${text}[[/link]]`)
-        else parts.push(text)
+        const label = inlineTokensToText(token.tokens || token.text || []) || escapeInlineText(token.text || token.href || '')
+        if (token.href) parts.push(`[[link:${escapeInlineUrl(token.href)}]]${label}[[/link]]`)
+        else parts.push(label)
         break
       }
       case 'image': {
-        const label = token.text ? `Image: ${token.text}` : 'Image'
-        if (token.href) parts.push(`[[image:${token.href}]]${label}[[/image]]`)
+        const label = token.text ? `Image: ${escapeInlineText(token.text.replace(/\s*\n\s*/g, ' '))}` : 'Image'
+        if (token.href) parts.push(`[[image:${escapeInlineUrl(token.href)}]]${label}[[/image]]`)
         else parts.push(label)
         break
       }
@@ -257,14 +294,19 @@ function inlineTokensToText(tokens: any): string {
         break
     }
   }
+  flushText()
   return collapseInlineSpaces(parts.join(' '))
+}
+
+function escapeInlineUrl(url: string): string {
+  return escapeInlineText(url).replaceAll(']', '\\]')
 }
 
 // Jina Reader sometimes outputs markdown with bold/italic immediately adjacent
 // to the next word (e.g. "**Bold.**Here"), which prevents marked from
 // tokenizing the emphasis. Normalize by inserting a space after the closing
 // marker when the next character is a letter.
-function normalizeEmphasisAdjacency(source: string): string {
+function normalizeMarkdownSource(source: string): string {
   if (!source) return source
 
   const normalizeNonCode = (s: string) => {
@@ -284,13 +326,13 @@ function normalizeEmphasisAdjacency(source: string): string {
 
   const normalizeTextRuns = (s: string) => {
     // Bold: **...**Here  /  __...__Here
-    return s
+    return normalizeHtmlHeadings(normalizeHtmlSuperscripts(s))
       .replace(/\*\*([^*\n]+?)\*\*(?=\p{L})/gu, '**$1** ')
       .replace(/__([^_\n]+?)__(?=\p{L})/gu, '__$1__ ')
   }
 
   // Skip fenced code blocks entirely (```...``` or ~~~...~~~)
-  const fenceRe = /(^|\n)(```|~~~)[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g
+  const fenceRe = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[~`]*[ \t]*$|(?![\s\S]))/gm
   let out = ''
   let last = 0
   let m: RegExpExecArray | null

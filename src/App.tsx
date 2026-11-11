@@ -10,14 +10,16 @@ import { stripJinaPreamble, stripInlineMarkers } from './syntaxExploder/document
 import {
   text$,
   currentPara$,
+  activeParagraphIndex$,
   controlsOpen$,
   activeTab$,
   markdownMode$,
   debug$,
   viewMode$,
+  setViewMode,
   maxWidth$,
   fullPush$,
-  isAutoFont$,
+  fontSizing$,
   beat$,
   focusStyle$,
   moveSpeed$,
@@ -25,6 +27,7 @@ import {
   focusSpeed$,
   sentence$,
   globalSentence$,
+  setReadingSentence,
   layoutVersion$,
   fontSize$,
   paragraphs$,
@@ -36,6 +39,7 @@ import {
   READER_FONT,
 } from './state/signals'
 import { useEngineInput } from './hooks/useEngineInput'
+import { activeEntry$ } from './state/library'
 
 // Default monospace font (matches engine default)
 export const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
@@ -48,16 +52,24 @@ interface AppProps {
 
 export function App({ engine }: AppProps) {
   const engineRef = useRef(engine)
-  const skipInitialSync = useRef(true)
+  const initialScope = useRef<{
+    entry: typeof activeEntry$.value
+    model: typeof document$.value
+    mode: typeof viewMode$.value
+  } | null>({
+    entry: activeEntry$.peek(),
+    model: document$.peek(),
+    mode: viewMode$.peek(),
+  })
 
   // Input handling
   useEngineInput({
     canvas: engine.canvas,
     engineRef,
-    fontSize$,
-    nextParagraph: () => nextParagraph(engineRef.current ?? undefined),
-    prevParagraph: () => prevParagraph(engineRef.current ?? undefined),
-    goToParagraph,
+    nextParagraph: () => moveScopedParagraph(engineRef.current, 1),
+    prevParagraph: () => moveScopedParagraph(engineRef.current, -1),
+    jumpParagraph,
+    restartReading,
     toggleViewMode,
     openInput: () => {
       batch(() => {
@@ -80,7 +92,7 @@ export function App({ engine }: AppProps) {
     engine.commit({
       debug: debug$.value,
       beat: beat$.value,
-      fontSize: fontSize$.value,
+      fontSizing: fontSizing$.value,
       maxContentWidth: maxWidth$.value,
     })
 
@@ -96,39 +108,15 @@ export function App({ engine }: AppProps) {
   useSignalEffect(() => {
     const engine = engineRef.current
     if (!engine) return
-    void document$.value
-    void viewMode$.value
+    const entry = activeEntry$.value
+    const model = document$.value
+    const mode = viewMode$.value
+    if (mode === 'paragraph') void currentPara$.value
     void markdownMode$.value
-    if (skipInitialSync.current) {
-      skipInitialSync.current = false
-      return
-    }
+    const initial = initialScope.current
+    initialScope.current = null
+    if (initial?.entry === entry && initial.model === model && initial.mode === mode) return
     applyEngineScope(engine, { snap: true })
-    if (isAutoFont$.value) {
-      engine.autoFitFontSize()
-      fontSize$.value = engine.getFontSize()
-    }
-  })
-
-  // Keep globalSentence in sync
-  useSignalEffect(() => {
-    const localSentence = sentence$.value
-    if (localSentence == null) {
-      globalSentence$.value = null
-      return
-    }
-    if (viewMode$.value === 'full') {
-      globalSentence$.value = localSentence
-      return
-    }
-    const paraIndex = currentPara$.value
-    const counts = sentenceCounts$.value
-    const paraSentenceCount = counts[paraIndex] ?? 0
-    // During a full→paragraph scope switch, the engine can still be reporting the
-    // previous global sentence index for a tick. Ignore impossible locals.
-    if (paraSentenceCount > 0 && localSentence >= paraSentenceCount) return
-    const offset = getSentenceOffset(counts, paraIndex)
-    globalSentence$.value = offset + localSentence
   })
 
   const isAtEnd = useComputed(() => {
@@ -197,7 +185,7 @@ export function App({ engine }: AppProps) {
     <>
       <CenterIndicator
         atEnd={isAtEnd.value}
-        current={(globalSentence$.value ?? 0) + 1}
+        current={(globalSentence$.value ?? -1) + 1}
         total={document$.value.sentenceCount}
       />
       <ArticleHeader />
@@ -218,76 +206,72 @@ export function applyEngineScope(engine: Engine, opts: { snap?: boolean } = { sn
   const fontFamily = isMarkdown ? READER_FONT : MONO_FONT
   const snap = opts.snap ?? true
 
-  if (view === 'full') {
-    const breakRows = isMarkdown ? 2 : 1
+  engine.batch(() => {
+    if (view === 'full') {
+      const breakRows = isMarkdown ? 2 : 1
+      engine.commit({
+        model: nextDoc,
+        scope: { mode: 'full', paragraphBreakRows: breakRows },
+        fontFamily,
+      }, { snap })
+      if (engine.getGlobalSentence() !== global) engine.setSentence(global, { snap })
+      return
+    }
+
+    const offset = getSentenceOffset(counts, paragraphIndex)
+    const sentenceCount = counts[paragraphIndex] ?? 0
     engine.commit({
       model: nextDoc,
-      scope: { mode: 'full', paragraphBreakRows: breakRows },
+      scope: { mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount },
       fontFamily,
     }, { snap })
-    if (global != null) {
-      const currentLocal = untracked(() => sentence$.value)
-      if (currentLocal !== global) engine.setSentence(global, { snap })
+    const local = global !== null && sentenceCount > 0
+      ? Math.max(0, Math.min(sentenceCount - 1, global - offset))
+      : null
+    if (engine.getGlobalSentence() !== (local === null ? null : offset + local)) {
+      engine.setSentence(local, { snap })
     }
+  })
+}
+
+function restartReading(engine: Engine) {
+  const firstSentence = document$.value.sentenceCount > 0 ? 0 : null
+  batch(() => {
+    setReadingSentence(firstSentence)
+    if (viewMode$.value === 'paragraph' && firstSentence !== null) {
+      const { paragraphIndex } = mapSentenceToParagraph(firstSentence, sentenceCounts$.value)
+      if (currentPara$.value !== paragraphIndex) {
+        currentPara$.value = paragraphIndex
+        applyEngineScope(engine, { snap: false })
+      }
+    }
+    engine.setSentence(firstSentence)
+  })
+}
+
+function moveScopedParagraph(engine: Engine, direction: -1 | 1): boolean {
+  if (viewMode$.value !== 'paragraph') return false
+  const target = currentPara$.value + direction
+  if (target < 0 || target >= sentenceCounts$.value.length) return false
+  batch(() => {
+    currentPara$.value = target
+    applyEngineScope(engine, { snap: false })
+  })
+  return true
+}
+
+function jumpParagraph(engine: Engine, direction: -1 | 1) {
+  if (viewMode$.value === 'paragraph') {
+    moveScopedParagraph(engine, direction)
     return
   }
-
-  const offset = getSentenceOffset(counts, paragraphIndex)
-  const sentenceCount = counts[paragraphIndex] ?? 0
-  engine.commit({
-    model: nextDoc,
-    scope: { mode: 'paragraph', paragraphIndex, sentenceOffset: offset, sentenceCount },
-    fontFamily,
-  }, { snap })
-  if (global != null && sentenceCount > 0) {
-    const local = Math.max(0, Math.min(sentenceCount - 1, global - offset))
-    const currentLocal = untracked(() => sentence$.value)
-    if (currentLocal !== local) engine.setSentence(local, { snap })
-  }
-}
-
-function goToParagraph(index: number) {
-  const paras = baseParagraphs$.value
-  if (index < 0 || index >= paras.length) return
-  currentPara$.value = index
-}
-
-function nextParagraph(engine?: Engine): boolean {
-  const paras = baseParagraphs$.value
-  if (currentPara$.value < paras.length - 1) {
-    currentPara$.value++
-    if (engine && viewMode$.value === 'paragraph') {
-      applyEngineScope(engine, { snap: false })
-    }
-    return true
-  }
-  return false
-}
-
-function prevParagraph(engine?: Engine): boolean {
-  if (currentPara$.value > 0) {
-    currentPara$.value--
-    if (engine && viewMode$.value === 'paragraph') {
-      applyEngineScope(engine, { snap: false })
-    }
-    return true
-  }
-  return false
-}
-
-function setViewMode(nextMode: 'full' | 'paragraph') {
   const counts = sentenceCounts$.value
-  const global = globalSentence$.value
-  let nextParaIndex = currentPara$.value
-  if (nextMode === 'full') {
-    nextParaIndex = 0
-  } else if (global != null) {
-    nextParaIndex = mapSentenceToParagraph(global, counts).paragraphIndex
+  for (let target = activeParagraphIndex$.value + direction; target >= 0 && target < counts.length; target += direction) {
+    if (counts[target] > 0) {
+      engine.setSentence(getSentenceOffset(counts, target))
+      return
+    }
   }
-  batch(() => {
-    viewMode$.value = nextMode
-    currentPara$.value = nextParaIndex
-  })
 }
 
 function toggleViewMode() {

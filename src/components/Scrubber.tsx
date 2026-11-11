@@ -11,7 +11,7 @@ interface ScrubberProps {
 }
 
 export function Scrubber({ min, max, step, value, defaultValue, onChange, class: className = '' }: ScrubberProps) {
-  const { onPointerDown, isActive } = useScrubber({
+  const { onPointerDown, active } = useScrubber({
     min,
     max,
     step,
@@ -20,7 +20,6 @@ export function Scrubber({ min, max, step, value, defaultValue, onChange, class:
     defaultVal: defaultValue,
   })
 
-  const active = isActive()
   const displayValue = step < 1 ? value.toFixed(1) : String(Math.round(value))
 
   return (

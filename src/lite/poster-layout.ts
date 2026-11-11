@@ -44,7 +44,7 @@ type CandidateLine = {
   height: number
 }
 
-const MIN_FONT_PX = 12
+const MIN_FONT_PX = 18
 const MAX_FONT_PX = 112
 const SCALE_MIN = 0.65
 const SCALE_MAX = 2.4
@@ -137,8 +137,7 @@ function finalizeLine(line: CandidateLine, index: number): PosterLine {
   }
 }
 
-function layoutAtSize(words: Word[], fontSize: number, maxWidth: number): PosterLayoutCandidate {
-  const atoms = buildAtoms(words)
+function layoutAtSize(atoms: PosterAtom[], fontSize: number, maxWidth: number): PosterLayoutCandidate {
   const lines: PosterLine[] = []
   let current: CandidateLine = { pieces: [], width: 0, height: 0 }
   let fitsWidth = true
@@ -184,17 +183,58 @@ function layoutAtSize(words: Word[], fontSize: number, maxWidth: number): Poster
   return { fontSize, lines, height, fitsWidth }
 }
 
-export function fitPosterLayout(words: Word[], maxWidth: number, maxHeight: number): PosterLayout {
-  const safeWidth = Math.max(120, Math.floor(maxWidth))
-  const safeHeight = Math.max(120, Math.floor(maxHeight))
-  const source = words.filter(word => !word.imageUrl)
-  if (source.length === 0) {
-    return { fontSize: MIN_FONT_PX, lines: [], height: 0 }
+function wrapWideAtoms(atoms: PosterAtom[], width: number): PosterAtom[] {
+  const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return atoms.flatMap(atom => {
+    const size = Math.round(MIN_FONT_PX * atom.scale)
+    const measure = (text: string) => measureWidth(text, size, atom.fontStyle, atom.fontWeight)
+    if (measure(atom.text) <= width) return [atom]
+
+    const pieces: PosterAtom[] = []
+    let text = ''
+    const push = () => {
+      pieces.push({ ...atom, key: `${atom.key}-${pieces.length}`, text, spaceBefore: pieces.length === 0 && atom.spaceBefore })
+    }
+    for (const { segment } of graphemes.segment(atom.text)) {
+      if (text && measure(text + segment) > width) {
+        push()
+        text = segment
+      } else {
+        text += segment
+      }
+    }
+    if (text) push()
+    return pieces
+  })
+}
+
+export function fitPosterPages(words: Word[], maxWidth: number, maxHeight: number): PosterLayout[] {
+  if (maxWidth <= 0 || maxHeight <= 0) return []
+  const safeWidth = Math.floor(maxWidth)
+  const safeHeight = Math.floor(maxHeight)
+  const source = buildAtoms(words)
+  if (!source.length) return []
+
+  const minimum = layoutAtSize(source, MIN_FONT_PX, safeWidth)
+  if (!minimum.fitsWidth || minimum.height > safeHeight) {
+    const wrapped = minimum.fitsWidth ? minimum : layoutAtSize(wrapWideAtoms(source, safeWidth), MIN_FONT_PX, safeWidth)
+    const pages: PosterLayout[] = []
+    let page: PosterLayout = { fontSize: MIN_FONT_PX, lines: [], height: 0 }
+    for (const line of wrapped.lines) {
+      if (page.lines.length && page.height + line.height > safeHeight) {
+        pages.push(page)
+        page = { fontSize: MIN_FONT_PX, lines: [], height: 0 }
+      }
+      page.lines.push(line)
+      page.height += line.height
+    }
+    if (page.lines.length) pages.push(page)
+    return pages
   }
 
   let lo = MIN_FONT_PX
   let hi = MAX_FONT_PX
-  let best = layoutAtSize(source, MIN_FONT_PX, safeWidth)
+  let best = minimum
 
   while (lo <= hi) {
     const mid = (lo + hi) >> 1
@@ -207,9 +247,5 @@ export function fitPosterLayout(words: Word[], maxWidth: number, maxHeight: numb
     }
   }
 
-  return {
-    fontSize: best.fontSize,
-    lines: best.lines,
-    height: best.height,
-  }
+  return [best]
 }

@@ -104,6 +104,35 @@
   font-size: 18px;
 }
 
+.lite-poster-pages {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  background: var(--color-btn-bg);
+  color: var(--color-fg);
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.lite-poster-pages button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.lite-poster-pages button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 .lite-progress {
   position: fixed;
   top: 8px;
