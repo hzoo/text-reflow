@@ -2,7 +2,6 @@ import './index.css'
 import { render } from 'preact'
 import { batch } from '@preact/signals'
 import { App, applyEngineScope, MONO_FONT } from './App'
-import { Agentation } from 'agentation'
 import { fetchUrlToEntry, getBootUrl } from './state/library'
 import { createEngine } from './syntaxExploder/engine'
 import type { BeatId, FocusStyleId } from './syntaxExploder/experiments'
@@ -53,10 +52,7 @@ if (isLite) {
   root.appendChild(uiContainer)
 
   render(
-    <>
-      <LiteApp />
-      {import.meta.env.DEV && <Agentation />}
-    </>,
+    <LiteApp />,
     uiContainer
   )
 } else {
@@ -128,10 +124,7 @@ if (isLite) {
   root.appendChild(uiContainer)
 
   render(
-    <>
-      <App engine={engine} />
-      {import.meta.env.DEV && <Agentation />}
-    </>,
+    <App engine={engine} />,
     uiContainer
   )
 
